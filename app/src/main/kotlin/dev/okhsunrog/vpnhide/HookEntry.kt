@@ -7,7 +7,6 @@ import android.net.NetworkCapabilities
 import android.net.NetworkInfo
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XSharedPreferences
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
@@ -56,15 +55,9 @@ class HookEntry : IXposedHookLoadPackage {
         // Never hook ourselves
         if (lpparam.packageName == BuildConfig.APPLICATION_ID) return
 
-        // Read the per-package allowlist from our module prefs.
-        // LSPosed/Vector patches XSharedPreferences permission handling so
-        // MODE_PRIVATE prefs are readable from hooked processes.
-        val prefs = XSharedPreferences(BuildConfig.APPLICATION_ID, PrefsHelper.PREFS_NAME)
-        prefs.reload()
-        val hiddenPackages =
-            prefs.getStringSet(PrefsHelper.KEY_HIDDEN_PACKAGES, emptySet()) ?: return
-        if (lpparam.packageName !in hiddenPackages) return
-
+        // Scope is controlled entirely by LSPosed/Vector's per-app scope setting.
+        // We hook every process the framework loads us into. Pick target apps in
+        // Vector manager → Modules → VPN Hide → scope.
         XposedBridge.log("VpnHide: installing hooks for ${lpparam.packageName}")
         installHooks(lpparam.classLoader)
     }

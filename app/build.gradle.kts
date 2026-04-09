@@ -62,8 +62,8 @@ dependencies {
     // LSPosed/Vector provides the implementation at runtime.
     compileOnly("de.robv.android.xposed:api:82")
 
+    // AppCompat for the minimal status screen activity. That's all the
+    // manager UI needs — no recyclerview, no coroutines, no lifecycle
+    // since the Activity is static.
     implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("androidx.recyclerview:recyclerview:1.3.2")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }
