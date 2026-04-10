@@ -12,6 +12,15 @@ VPN interface is up on the device.
 > (Android 16) on a Pixel 8 Pro with KernelSU-Next (LKM) + NeoZygisk +
 > JingMatrix Vector. Should work on any LSPosed / Vector v93+ setup.
 
+> **Companion module:** this LSPosed module covers the Java / Android
+> framework side. For the **native** detection path — apps that check
+> for a VPN from C/C++/JNI/Flutter via `libc::ioctl`, `getifaddrs()`,
+> `/proc/net/*` and never enter ART — use the matching Zygisk module
+> [okhsunrog/vpnhide-zygisk](https://github.com/okhsunrog/vpnhide-zygisk).
+> The two modules are independent and share no runtime state; you can
+> install either one alone, but for full coverage of both the Java and
+> native stacks you want both installed together.
+
 ---
 
 ## What problem does this solve?
