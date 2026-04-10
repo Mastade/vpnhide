@@ -60,11 +60,58 @@ class HookEntry : IXposedHookLoadPackage {
         // Never hook ourselves
         if (lpparam.packageName == BuildConfig.APPLICATION_ID) return
 
-        // Scope is controlled entirely by LSPosed/Vector's per-app scope setting.
-        // We hook every process the framework loads us into. Pick target apps in
-        // Vector manager → Modules → VPN Hide → scope.
-        XposedBridge.log("VpnHide: installing hooks for ${lpparam.packageName}")
-        installHooks(lpparam.classLoader)
+        // Check if this app bundles the MIR HCE SDK (ru.nspk.mir.hce.sdk).
+        // That SDK has aggressive native anti-tamper that scans ART method
+        // entry points for Xposed/LSPosed trampolines during
+        // ContentProvider.attachInfo() — BEFORE Application.onCreate().
+        // If we install hooks at handleLoadPackage time (the normal path),
+        // MIR SDK sees the trampolines and crashes the process.
+        //
+        // Workaround: defer hook installation until AFTER all
+        // ContentProviders have been initialized. We hook
+        // Application.onCreate() and install our hooks from there.
+        // The timing still catches all VPN-detection code in the app's
+        // normal startup flow (splash screen, login, etc.) because that
+        // runs after onCreate().
+        val hasMirSdk = try {
+            lpparam.classLoader.loadClass("ru.nspk.mir.hce.sdk.LibContentProvider")
+            true
+        } catch (_: ClassNotFoundException) {
+            false
+        }
+
+        if (hasMirSdk) {
+            XposedBridge.log("VpnHide: MIR SDK detected in ${lpparam.packageName}, deferring hooks to after ContentProvider init")
+            deferHooksToAfterCreate(lpparam.classLoader)
+        } else {
+            XposedBridge.log("VpnHide: installing hooks for ${lpparam.packageName}")
+            installHooks(lpparam.classLoader)
+        }
+    }
+
+    /**
+     * Instead of installing hooks immediately (which triggers MIR SDK's
+     * anti-tamper check during ContentProvider init), hook
+     * [android.app.Application.onCreate] and install our hooks from its
+     * `after` callback. By the time `onCreate()` runs, all
+     * ContentProviders (including MIR SDK's `LibContentProvider`) have
+     * already finished their `attachInfo()` + native integrity checks.
+     */
+    private fun deferHooksToAfterCreate(cl: ClassLoader) {
+        try {
+            XposedHelpers.findAndHookMethod(
+                "android.app.Application", cl, "onCreate",
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        XposedBridge.log("VpnHide: Application.onCreate fired, installing deferred hooks now")
+                        installHooks(cl)
+                    }
+                }
+            )
+        } catch (t: Throwable) {
+            XposedBridge.log("VpnHide: failed to defer hooks: ${t.message}, falling back to immediate install")
+            installHooks(cl)
+        }
     }
 
     private fun installHooks(cl: ClassLoader) {
