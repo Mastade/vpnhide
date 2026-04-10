@@ -728,6 +728,8 @@ class HookEntry : IXposedHookLoadPackage {
      * Resolved lazily on first Binder call in system_server.
      */
     @Volatile private var systemServerTargetUids: Set<Int>? = null
+    // Strong reference to prevent GC from killing the inotify watch.
+    @Volatile private var targetUidsFileObserver: android.os.FileObserver? = null
 
     private fun loadTargetUids(): Set<Int> {
         systemServerTargetUids?.let { return it }
@@ -789,18 +791,23 @@ class HookEntry : IXposedHookLoadPackage {
      * next writeToParcel call re-reads it. No reboot needed.
      */
     private fun watchTargetUidsFile() {
-        val path = "/data/system/vpnhide_uids.txt"
+        val dir = "/data/system"
+        val filename = "vpnhide_uids.txt"
         val observer = object : android.os.FileObserver(
-            java.io.File(path),
-            MODIFY or CLOSE_WRITE or MOVED_TO
+            java.io.File(dir),
+            CREATE or CLOSE_WRITE or MOVED_TO or MODIFY
         ) {
             override fun onEvent(event: Int, path: String?) {
-                XposedBridge.log("VpnHide: target UIDs file changed, invalidating cache")
-                systemServerTargetUids = null
+                if (path == filename) {
+                    XposedBridge.log("VpnHide: $filename changed (event=$event), invalidating UID cache")
+                    systemServerTargetUids = null
+                }
             }
         }
+        // Store as field — prevents GC from killing the inotify watch.
+        targetUidsFileObserver = observer
         observer.startWatching()
-        XposedBridge.log("VpnHide: watching $path for changes (inotify)")
+        XposedBridge.log("VpnHide: watching $dir for $filename changes (inotify)")
     }
 
     /**
