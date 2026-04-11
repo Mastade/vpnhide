@@ -32,9 +32,11 @@ kmod/vpnhide_kmod.ko
 test-app/.gradle/
 test-app/build/
 test-app/app/build/
+test-app/app/.cxx/
 test-app/.idea/
 test-app/*.iml
 test-app/local.properties
+test-app/.kotlin/
 
 # General
 *.swp
