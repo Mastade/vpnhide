@@ -217,7 +217,6 @@ private fun runAllChecks(cm: ConnectivityManager): List<CheckResult> {
     results.add(checkNetworkInterfaceEnum())
     results.add(checkActiveNetworkVpn(cm))
     results.add(checkLinkPropertiesIfname(cm))
-    results.add(checkDnsServers(cm))
     results.add(checkProxyHost())
     results.add(checkProcNetRouteJava())
 
@@ -367,19 +366,6 @@ private fun checkLinkPropertiesIfname(cm: ConnectivityManager): CheckResult {
     }
     Log.i(TAG, "[$name] $detail")
     return CheckResult(name, !isVpn, detail)
-}
-
-private fun checkDnsServers(cm: ConnectivityManager): CheckResult {
-    val name = "13. DNS servers"
-    Log.i(TAG, "=== CHECK: $name ===")
-    val net = cm.activeNetwork
-        ?: return CheckResult(name, null, "INFO: no active network").also { Log.i(TAG, "[$name] ${it.detail}") }
-    val lp = cm.getLinkProperties(net)
-        ?: return CheckResult(name, null, "INFO: no link properties").also { Log.i(TAG, "[$name] ${it.detail}") }
-    val servers = lp.dnsServers.map { it.hostAddress ?: "?" }
-    val detail = "INFO: [${servers.joinToString()}]"
-    Log.i(TAG, "[$name] $detail")
-    return CheckResult(name, null, detail)
 }
 
 private fun checkProxyHost(): CheckResult {
