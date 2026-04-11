@@ -104,9 +104,31 @@ int dev_ioctl(struct net *net,       // x0
 
 **Important:** `x2` is a kernel-space pointer (the caller already did `copy_from_user`). Using `copy_from_user` on it will EFAULT on ARM64 with PAN enabled. The return handler reads via direct pointer dereference.
 
-### rtnl_fill_ifinfo trick
+### Why dev_ifconf is a separate hook from dev_ioctl
 
-To skip a VPN interface during a netlink dump without corrupting the message stream, the return handler sets the return value to `-EMSGSIZE`. The dump iterator interprets this as "skb too small for this entry" and moves to the next device without adding the current one -- effectively skipping it. The entry is never seen by userspace.
+`SIOCGIFCONF` does NOT go through `dev_ioctl()` on GKI 6.1. The call path is `sock_ioctl → dev_ifconf()` -- a completely separate function. We confirmed this by grepping the kernel source: `dev_ioctl` handles `SIOCGIFFLAGS`, `SIOCGIFNAME`, etc., but `SIOCGIFCONF` is dispatched before `dev_ioctl` is ever called.
+
+`dev_ifconf(struct net *net, struct ifconf __user *uifc)` iterates all netdevs and writes ifreq entries directly to the userspace buffer. Our return handler reads back the userspace buffer, compacts out VPN entries, and updates `ifc_len` via `put_user`.
+
+### rtnl_fill_ifinfo: -EMSGSIZE trick
+
+To skip a VPN interface during a netlink RTM_GETLINK dump without corrupting the message stream, the return handler sets the return value to `-EMSGSIZE`. The dump iterator interprets this as "skb too small for this entry" and moves to the next device without adding the current one -- effectively skipping it.
+
+This works because the RTM_GETLINK dump iterator (`rtnl_dump_ifinfo`) processes one device at a time. When it gets `-EMSGSIZE`, it stops the current batch and returns what it has so far. On the next `recv()`, the iterator resumes from the skipped device -- but since `rtnl_fill_ifinfo` returns `-EMSGSIZE` again, it advances to the next device. The VPN entry is never seen by userspace.
+
+### inet_fill_ifaddr / inet6_fill_ifaddr: why NOT -EMSGSIZE
+
+The RTM_GETADDR dump uses a different iterator that behaves differently on `-EMSGSIZE`. When the first address entry in a fresh (empty) skb returns `-EMSGSIZE`, the iterator thinks the skb is too small for even one entry and retries indefinitely -- causing an infinite loop that hangs `getifaddrs()` and can freeze system services at boot.
+
+Instead, we save `skb->len` before the fill function runs. In the return handler, we call `skb_trim(skb, saved_len)` to undo whatever the fill function wrote, then return 0 (success). The dump iterator sees a successful return but no new data was added, so it moves to the next address. This cleanly skips VPN addresses without triggering the retry logic.
+
+### fib_route_seq_show: seq_file buffer compaction
+
+`fib_route_seq_show(struct seq_file *seq, void *v)` appends one or more tab-separated route lines to `seq->buf`. Each call can write multiple lines (one per `fib_alias` in the routing table entry).
+
+The kretprobe entry handler saves the `seq` pointer and `seq->count` (current buffer position) in `ri->data`. The return handler scans the newly written region `[saved_count, seq->count)` line by line, extracts the first tab-delimited field (interface name), and compacts out VPN lines using `memmove`. Finally, `seq->count` is adjusted to reflect the reduced content.
+
+**Why we save seq in the entry handler:** in a kretprobe return handler, `regs->regs[0]` (x0 on arm64) contains the function's *return value*, not the original first argument. The original code tried to read `seq` from x0 in the return handler, which was reading the return value (0) as a pointer -- a bug that would crash or silently fail. The fix is standard kretprobe practice: save arguments in `ri->data` during the entry handler.
 
 ## License
 
