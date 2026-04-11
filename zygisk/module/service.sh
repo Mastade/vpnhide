@@ -4,7 +4,14 @@
 
 PERSIST_DIR="/data/adb/vpnhide_zygisk"
 TARGETS_FILE="$PERSIST_DIR/targets.txt"
+MODULE_DIR="${0%/*}"
 SS_UIDS_FILE="/data/system/vpnhide_uids.txt"
+
+# Copy targets to module directory so zygote can read it on Magisk
+# (SELinux blocks zygote from /data/adb/vpnhide_zygisk/ on Magisk)
+if [ -f "$TARGETS_FILE" ]; then
+    cp "$TARGETS_FILE" "$MODULE_DIR/targets.txt" 2>/dev/null
+fi
 
 # Wait for PackageManager to be ready
 for i in $(seq 1 30); do

@@ -159,6 +159,7 @@
   // path also runs `mkdir -p` defensively.
   const PERSIST_DIR = `/data/adb/${MODULE_ID}`;
   const TARGETS_PATH = `${PERSIST_DIR}/targets.txt`;
+  const MODULE_TARGETS_PATH = `/data/adb/modules/${MODULE_ID}/targets.txt`;
   const SS_UIDS_FILE = '/data/system/vpnhide_uids.txt';
 
   const listEl = document.getElementById('list');
@@ -287,8 +288,8 @@
       // package names or newlines.
       const b64 = btoa(body);
 
-      // Step 1: save package names to targets.txt
-      const step1 = `mkdir -p ${PERSIST_DIR} && echo '${b64}' | base64 -d > ${TARGETS_PATH} && chmod 644 ${TARGETS_PATH}`;
+      // Step 1: save package names to targets.txt (persistent + module dir for Magisk SELinux compat)
+      const step1 = `mkdir -p ${PERSIST_DIR} && echo '${b64}' | base64 -d > ${TARGETS_PATH} && chmod 644 ${TARGETS_PATH} && cp ${TARGETS_PATH} ${MODULE_TARGETS_PATH} 2>/dev/null`;
       const r1 = await ksuExec(step1);
       if (r1.errno !== 0) throw new Error(r1.stderr || `step1 errno=${r1.errno}`);
 

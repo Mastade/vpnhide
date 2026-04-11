@@ -49,7 +49,11 @@ const LOG_TAG: &str = "vpnhide-zygisk";
 /// it survives module updates (KSU/Magisk wipe `/data/adb/modules/<id>/`
 /// on every install). `customize.sh` is responsible for creating the
 /// directory and migrating the legacy in-module file on first run.
+/// Persistent targets path (survives module updates).
 const TARGETS_FILE: &str = "/data/adb/vpnhide_zygisk/targets.txt";
+/// Module directory copy — zygote can read this on Magisk where SELinux
+/// blocks access to /data/adb/vpnhide_zygisk/.
+const TARGETS_FILE_MODULE: &str = "/data/adb/modules/vpnhide_zygisk/targets.txt";
 
 /// Initialize `android_logger` exactly once. Cheap to call from every
 /// forked process — subsequent calls are no-ops. The compile-time log
@@ -311,7 +315,10 @@ fn is_targeted(package: &str) -> bool {
         None => package,
     };
 
-    match fs::read_to_string(TARGETS_FILE) {
+    let content =
+        fs::read_to_string(TARGETS_FILE).or_else(|_| fs::read_to_string(TARGETS_FILE_MODULE));
+
+    match content {
         Ok(content) => content.lines().any(|line| {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
@@ -320,7 +327,7 @@ fn is_targeted(package: &str) -> bool {
             line == package || line == base_package
         }),
         Err(e) => {
-            log::warn!("is_targeted: can't read {TARGETS_FILE} ({e}); no targets active");
+            log::warn!("is_targeted: can't read targets ({e}); no targets active");
             false
         }
     }
