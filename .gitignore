@@ -1,0 +1,42 @@
+# Zygisk (Rust)
+zygisk/target/
+zygisk/.vscode/
+zygisk/.idea/
+
+# LSPosed (Kotlin/Gradle)
+lsposed/.gradle/
+lsposed/build/
+lsposed/app/build/
+lsposed/.idea/
+lsposed/*.iml
+lsposed/local.properties
+lsposed/captures/
+lsposed/*.jks
+lsposed/*.keystore
+lsposed/keystore.properties
+
+# Kmod (kernel module)
+kmod/*.o
+kmod/*.mod
+kmod/*.mod.c
+kmod/*.mod.o
+kmod/Module.symvers
+kmod/modules.order
+kmod/.tmp_versions/
+kmod/vpnhide-kmod.zip
+kmod/.*.cmd
+kmod/*.usyms
+kmod/vpnhide_kmod.ko
+
+# Test app
+test-app/.gradle/
+test-app/build/
+test-app/app/build/
+test-app/.idea/
+test-app/*.iml
+test-app/local.properties
+
+# General
+*.swp
+*.log
+/tmp/
