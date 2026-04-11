@@ -14,7 +14,6 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileReader
 import java.io.InputStreamReader
 import java.lang.reflect.Method
 import java.net.InetAddress
@@ -37,9 +36,7 @@ import java.util.Collections
  *   5. NetworkInterface      — getNetworkInterfaces, getByName, getByIndex, getByInetAddress,
  *      hiding any interface whose name looks like a VPN tunnel (tun, ppp, tap, wg, ipsec,
  *      xfrm, utun, l2tp).
- *   6. /proc/net entries     — FileInputStream / FileReader constructors redirected to
- *      /dev/null for sensitive paths, so reading them yields empty content.
- *   7. System.getProperty    — returns null (or the caller's default) for JVM-level
+ *   6. System.getProperty    — returns null (or the caller's default) for JVM-level
  *      proxy keys (http.proxyHost, socksProxyHost, …) that both RKNHardering and
  *      YourVPNDead use as VPN signals.
  *
@@ -115,7 +112,6 @@ class HookEntry : IXposedHookLoadPackage {
         tryHook("ConnectivityManager")  { hookConnectivityManager(cl) }
         tryHook("LinkProperties")       { hookLinkProperties(cl) }
         tryHook("NetworkInterface")     { hookNetworkInterface() }
-        tryHook("ProcNetFiles")         { hookProcNetFiles() }
         tryHook("SystemProperties")     { hookSystemProperties() }
     }
 
@@ -576,71 +572,6 @@ class HookEntry : IXposedHookLoadPackage {
     }
 
     // ------------------------------------------------------------------
-    //  /proc/net/* file reads — redirect to /dev/null so reads yield empty
-    // ------------------------------------------------------------------
-
-    private fun hookProcNetFiles() {
-        val devNull = "/dev/null"
-        val devNullFile = File(devNull)
-
-        // FileInputStream(String)
-        XposedHelpers.findAndHookConstructor(
-            FileInputStream::class.java, String::class.java,
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val path = param.args[0] as? String ?: return
-                    if (isSensitiveNetPath(path)) {
-                        param.args[0] = devNull
-                    }
-                }
-            }
-        )
-
-        // FileInputStream(File)
-        XposedHelpers.findAndHookConstructor(
-            FileInputStream::class.java, File::class.java,
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    val f = param.args[0] as? File ?: return
-                    if (isSensitiveNetPath(f.absolutePath)) {
-                        param.args[0] = devNullFile
-                    }
-                }
-            }
-        )
-
-        // FileReader(String)
-        runCatching {
-            XposedHelpers.findAndHookConstructor(
-                FileReader::class.java, String::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val path = param.args[0] as? String ?: return
-                        if (isSensitiveNetPath(path)) {
-                            param.args[0] = devNull
-                        }
-                    }
-                }
-            )
-        }
-
-        // FileReader(File)
-        runCatching {
-            XposedHelpers.findAndHookConstructor(
-                FileReader::class.java, File::class.java,
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        val f = param.args[0] as? File ?: return
-                        if (isSensitiveNetPath(f.absolutePath)) {
-                            param.args[0] = devNullFile
-                        }
-                    }
-                }
-            )
-        }
-    }
-
-    // ------------------------------------------------------------------
     //  System.getProperty — hide JVM-level proxy configuration
     // ------------------------------------------------------------------
 
@@ -699,26 +630,6 @@ class HookEntry : IXposedHookLoadPackage {
             n.startsWith("l2tp") ||
             n.startsWith("gre") ||
             n.contains("vpn")
-    }
-
-    private fun isSensitiveNetPath(path: String): Boolean {
-        if (!path.startsWith("/proc/")) return false
-        return when (path) {
-            "/proc/net/route",
-            "/proc/net/ipv6_route",
-            "/proc/net/if_inet6",
-            "/proc/net/tcp",
-            "/proc/net/tcp6",
-            "/proc/net/udp",
-            "/proc/net/udp6",
-            "/proc/net/dev",
-            "/proc/net/arp",
-            "/proc/net/route_cache",
-            "/proc/net/rt_cache" -> true
-            else -> path.startsWith("/proc/net/fib_trie") ||
-                path.startsWith("/proc/net/fib_triestat") ||
-                path.startsWith("/proc/net/xfrm_stat")
-        }
     }
 
     // ==================================================================

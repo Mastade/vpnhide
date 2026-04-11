@@ -422,6 +422,12 @@ private fun checkProcNetRouteJava(): CheckResult {
         Log.i(TAG, "[$name] $detail")
         CheckResult(name, vpnLines.isEmpty(), detail)
     } catch (e: Exception) {
+        val msg = e.message ?: ""
+        if (msg.contains("EACCES") || msg.contains("Permission denied")) {
+            val detail = "PASS: access denied by SELinux — app cannot read /proc/net/route"
+            Log.i(TAG, "[$name] $detail")
+            return CheckResult(name, true, detail)
+        }
         val detail = "FAIL: ${e.message}"
         Log.e(TAG, "[$name] $detail", e)
         CheckResult(name, false, detail)
