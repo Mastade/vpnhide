@@ -215,6 +215,7 @@ private fun runAllChecks(cm: ConnectivityManager): List<CheckResult> {
     results.add(checkHasCapabilityNotVpn(cm))
     results.add(checkTransportInfo(cm))
     results.add(checkNetworkInterfaceEnum())
+    results.add(checkAllNetworksVpn(cm))
     results.add(checkActiveNetworkVpn(cm))
     results.add(checkLinkPropertiesIfname(cm))
     results.add(checkProxyHost())
@@ -316,6 +317,37 @@ private fun checkNetworkInterfaceEnum(): CheckResult {
         Log.e(TAG, "[$name] $detail", e)
         CheckResult(name, false, detail)
     }
+}
+
+@Suppress("DEPRECATION")
+private fun checkAllNetworksVpn(cm: ConnectivityManager): CheckResult {
+    val name = "getAllNetworks() VPN scan"
+    Log.i(TAG, "=== CHECK: $name ===")
+    val networks = cm.allNetworks
+    if (networks.isEmpty()) {
+        return CheckResult(name, true, "PASS: no networks").also { Log.i(TAG, "[$name] ${it.detail}") }
+    }
+    val vpnNetworks = mutableListOf<String>()
+    for (net in networks) {
+        val caps = cm.getNetworkCapabilities(net) ?: continue
+        val hasVpn = caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        val transports = mutableListOf<String>()
+        mapOf(
+            NetworkCapabilities.TRANSPORT_CELLULAR to "CELLULAR",
+            NetworkCapabilities.TRANSPORT_WIFI to "WIFI",
+            NetworkCapabilities.TRANSPORT_VPN to "VPN",
+            NetworkCapabilities.TRANSPORT_ETHERNET to "ETHERNET",
+        ).forEach { (id, label) -> if (caps.hasTransport(id)) transports.add(label) }
+        Log.i(TAG, "[$name] Network $net: [${transports.joinToString()}] VPN=$hasVpn")
+        if (hasVpn) vpnNetworks.add(net.toString())
+    }
+    val detail = if (vpnNetworks.isEmpty()) {
+        "PASS: ${networks.size} networks, none have TRANSPORT_VPN"
+    } else {
+        "FAIL: ${vpnNetworks.size} network(s) with TRANSPORT_VPN: [${vpnNetworks.joinToString()}]"
+    }
+    Log.i(TAG, "[$name] $detail")
+    return CheckResult(name, vpnNetworks.isEmpty(), detail)
 }
 
 private fun checkActiveNetworkVpn(cm: ConnectivityManager): CheckResult {
