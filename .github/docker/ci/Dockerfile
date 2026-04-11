@@ -1,9 +1,11 @@
-# CI image for vpnhide-zygisk.
+# CI image for vpnhide.
 #
-# Bakes in everything build-zip.sh needs so each CI run skips ~3-5
-# minutes of NDK download + apt installs + cargo-install. Rebuilt by
-# the ci-image.yml workflow when this Dockerfile changes (and once a
-# month on schedule).
+# Bakes in everything needed for all three modules:
+#   - Rust + NDK + cargo-ndk (zygisk)
+#   - JDK 17 (lsposed, test-app)
+#   - Google AOSP clang + cross-compile tools (kmod)
+#
+# Rebuilt by ci-image.yml when this Dockerfile changes (and monthly).
 
 FROM ubuntu:24.04
 
@@ -15,9 +17,12 @@ RUN apt-get update && \
         build-essential pkg-config \
         cmake ninja-build \
         openjdk-17-jdk-headless \
+        bc kmod cpio \
+        binutils-aarch64-linux-gnu \
         git && \
     rm -rf /var/lib/apt/lists/*
 
+# ── Rust toolchain (for zygisk) ──────────────────────────────────────
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH
@@ -28,6 +33,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     cargo install cargo-ndk --locked && \
     chmod -R a+w /usr/local/rustup /usr/local/cargo
 
+# ── Android NDK (for zygisk) ─────────────────────────────────────────
 ENV ANDROID_NDK_VERSION=r28b
 ENV ANDROID_NDK_HOME=/opt/android-ndk
 
@@ -35,6 +41,20 @@ RUN curl -fsSL -o /tmp/ndk.zip \
         "https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip" && \
     unzip -q /tmp/ndk.zip -d /opt && \
     mv "/opt/android-ndk-${ANDROID_NDK_VERSION}" "${ANDROID_NDK_HOME}" && \
-    rm /tmp/ndk.zip
+    rm /tmp/ndk.zip && \
+    chmod -R a+rx "${ANDROID_NDK_HOME}"
 
-RUN chmod -R a+rx "${ANDROID_NDK_HOME}"
+# ── Google AOSP clang (for kmod) ─────────────────────────────────────
+# Same toolchain that built the Pixel GKI kernel — avoids ABI mismatches
+# that cause bootloops with distro clang.
+ENV AOSP_CLANG_VERSION=clang-r487747c
+ENV AOSP_CLANG_DIR=/opt/aosp-clang
+
+RUN git clone --depth=1 --filter=blob:none --sparse \
+        https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+        /tmp/clang-repo && \
+    cd /tmp/clang-repo && \
+    git sparse-checkout set ${AOSP_CLANG_VERSION} && \
+    mv ${AOSP_CLANG_VERSION} ${AOSP_CLANG_DIR} && \
+    rm -rf /tmp/clang-repo && \
+    chmod -R a+rx ${AOSP_CLANG_DIR}
