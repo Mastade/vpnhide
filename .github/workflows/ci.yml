@@ -1,15 +1,10 @@
-name: Kmod
+name: CI
 
 on:
   push:
-    paths:
-      - 'kmod/**'
-      - '.github/workflows/kmod.yml'
-      - '.github/docker/ci/Dockerfile'
+    branches: [main]
+    tags: ['v*']
   pull_request:
-    paths:
-      - 'kmod/**'
-      - '.github/workflows/kmod.yml'
   workflow_dispatch:
 
 permissions:
@@ -17,7 +12,7 @@ permissions:
   packages: read
 
 jobs:
-  build:
+  kmod:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/${{ github.repository }}/ci:latest
@@ -101,8 +96,7 @@ jobs:
 
       - name: Build kernel module
         run: |
-          export KERNEL_SRC=$GITHUB_WORKSPACE/kernel-source
-          make -C $KERNEL_SRC M=$GITHUB_WORKSPACE/kmod \
+          make -C $GITHUB_WORKSPACE/kernel-source M=$GITHUB_WORKSPACE/kmod \
               ARCH=arm64 LLVM=1 LLVM_IAS=1 \
               CC=$CLANG_DIR/clang LD=$CLANG_DIR/ld.lld \
               AR=$CLANG_DIR/llvm-ar NM=$CLANG_DIR/llvm-nm \
@@ -111,16 +105,11 @@ jobs:
               STRIP=$CLANG_DIR/llvm-strip \
               CROSS_COMPILE=aarch64-linux-gnu- \
               modules
-          ls -lh kmod/vpnhide_kmod.ko
 
       - name: Package KSU module zip
-        id: package
         run: |
           cp kmod/vpnhide_kmod.ko kmod/module/
-          ZIPNAME="vpnhide-kmod-${{ matrix.gki.branch }}.zip"
-          (cd kmod/module && zip -qr "../../$ZIPNAME" .)
-          ls -lh "$ZIPNAME"
-          echo "zipname=$ZIPNAME" >> "$GITHUB_OUTPUT"
+          (cd kmod/module && zip -qr "$GITHUB_WORKSPACE/vpnhide-kmod-${{ matrix.gki.branch }}.zip" .)
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -129,8 +118,92 @@ jobs:
           path: vpnhide-kmod-${{ matrix.gki.branch }}.zip
           if-no-files-found: error
 
+  zygisk:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}/ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Mark workspace safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            zygisk/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('zygisk/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Build module zip
+        run: cd zygisk && ./build-zip.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpnhide-zygisk
+          path: zygisk/target/vpnhide-zygisk.zip
+          if-no-files-found: error
+
+  lsposed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK
+        run: cd lsposed && ./gradlew --no-daemon assembleDebug
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpnhide-lsposed
+          path: lsposed/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  test-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK
+        run: cd test-app && ./gradlew --no-daemon assembleDebug
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpnhide-test
+          path: test-app/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [kmod, zygisk, lsposed, test-app]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -140,17 +213,31 @@ jobs:
           path: dist/
           merge-multiple: true
 
-      - name: Generate checksums
+      - name: Rename artifacts
         run: |
           cd dist
-          for f in *.zip; do sha256sum "$f" > "${f}.sha256"; done
+          tag="${GITHUB_REF##*/}"
+          # Rename with version tag
+          for f in *.zip *.apk; do
+            [ -f "$f" ] || continue
+            base="${f%.*}"
+            ext="${f##*.}"
+            mv "$f" "${base}-${tag}.${ext}" 2>/dev/null || true
+          done
+          # Generate checksums
+          for f in *.zip *.apk; do
+            [ -f "$f" ] && sha256sum "$f" > "${f}.sha256"
+          done
+          ls -lh
 
-      - name: Upload release assets
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
           files: |
             dist/*.zip
+            dist/*.apk
             dist/*.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
