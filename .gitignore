@@ -41,6 +41,9 @@ test-app/.idea/
 test-app/*.iml
 test-app/local.properties
 test-app/.kotlin/
+test-app/*.jks
+test-app/*.keystore
+test-app/keystore.properties
 
 # General
 *.swp
