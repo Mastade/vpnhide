@@ -12,8 +12,8 @@ android {
         applicationId = "dev.okhsunrog.vpnhide"
         minSdk = 29
         targetSdk = 35
-        versionCode = 3
-        versionName = "3.0"
+        versionCode = 400
+        versionName = "0.4.0"
     }
 
     buildFeatures {

@@ -1,6 +1,6 @@
 id=vpnhide_kmod
 name=VPN Hide (kernel)
-version=v0.1.0
-versionCode=1
+version=v0.4.0
+versionCode=400
 author=okhsunrog
-description=Hides VPN interfaces from selected apps at the kernel level via kretprobe. Invisible to anti-tamper SDKs. Manage targets via WebUI.
+description=Hides VPN interfaces from selected apps at the kernel level via kretprobe. Invisible to anti-tamper SDKs. Manage targets via VPN Hide app or WebUI.
