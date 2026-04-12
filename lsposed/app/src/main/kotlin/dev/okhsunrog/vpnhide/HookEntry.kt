@@ -34,16 +34,16 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Only "System Framework" needs to be in LSPosed scope.
  */
 class HookEntry : IXposedHookLoadPackage {
-
     private val hookInstalled = AtomicBoolean(false)
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         // Only hook system_server. handleLoadPackage fires multiple times
         // in system_server (once per hosted package / APEX), so we use
         // compareAndSet to install hooks exactly once.
-        val inSystemServer = hookInstalled.get() ||
-            lpparam.processName == "android" ||
-            android.os.Process.myUid() == 1000
+        val inSystemServer =
+            hookInstalled.get() ||
+                lpparam.processName == "android" ||
+                android.os.Process.myUid() == 1000
 
         if (!inSystemServer) return
 
@@ -53,7 +53,10 @@ class HookEntry : IXposedHookLoadPackage {
         }
     }
 
-    private inline fun tryHook(name: String, block: () -> Unit) {
+    private inline fun tryHook(
+        name: String,
+        block: () -> Unit,
+    ) {
         try {
             block()
         } catch (t: Throwable) {
@@ -85,6 +88,7 @@ class HookEntry : IXposedHookLoadPackage {
     // ==================================================================
 
     @Volatile private var systemServerTargetUids: Set<Int>? = null
+
     @Volatile private var targetUidsFileObserver: android.os.FileObserver? = null
     private val uidLock = Any()
 
@@ -135,7 +139,7 @@ class HookEntry : IXposedHookLoadPackage {
         tryHook("NC.writeToParcel") { hookNCWriteToParcel() }
         tryHook("NI.writeToParcel") { hookNIWriteToParcel() }
         tryHook("LP.writeToParcel") { hookLPWriteToParcel() }
-        tryHook("FileObserver")     { watchTargetUidsFile() }
+        tryHook("FileObserver") { watchTargetUidsFile() }
     }
 
     /**
@@ -146,17 +150,21 @@ class HookEntry : IXposedHookLoadPackage {
     private fun watchTargetUidsFile() {
         val dir = "/data/system"
         val filename = "vpnhide_uids.txt"
-        val observer = object : android.os.FileObserver(
-            File(dir),
-            CREATE or CLOSE_WRITE or MOVED_TO or MODIFY
-        ) {
-            override fun onEvent(event: Int, path: String?) {
-                if (path == filename) {
-                    XposedBridge.log("VpnHide: $filename changed (event=$event), invalidating UID cache")
-                    systemServerTargetUids = null
+        val observer =
+            object : android.os.FileObserver(
+                File(dir),
+                CREATE or CLOSE_WRITE or MOVED_TO or MODIFY,
+            ) {
+                override fun onEvent(
+                    event: Int,
+                    path: String?,
+                ) {
+                    if (path == filename) {
+                        XposedBridge.log("VpnHide: $filename changed (event=$event), invalidating UID cache")
+                        systemServerTargetUids = null
+                    }
                 }
             }
-        }
         targetUidsFileObserver = observer
         observer.startWatching()
         XposedBridge.log("VpnHide: watching $dir for $filename changes (inotify)")
@@ -170,8 +178,10 @@ class HookEntry : IXposedHookLoadPackage {
      */
     private fun hookNCWriteToParcel() {
         XposedHelpers.findAndHookMethod(
-            NetworkCapabilities::class.java, "writeToParcel",
-            android.os.Parcel::class.java, Integer.TYPE,
+            NetworkCapabilities::class.java,
+            "writeToParcel",
+            android.os.Parcel::class.java,
+            Integer.TYPE,
             object : XC_MethodHook() {
                 private val savedTransport = ThreadLocal<Long>()
                 private val savedCaps = ThreadLocal<Long>()
@@ -188,7 +198,12 @@ class HookEntry : IXposedHookLoadPackage {
 
                         // Read all original values before mutating anything
                         val caps = XposedHelpers.getLongField(nc, "mNetworkCapabilities")
-                        val ti = try { XposedHelpers.getObjectField(nc, "mTransportInfo") } catch (_: Throwable) { null }
+                        val ti =
+                            try {
+                                XposedHelpers.getObjectField(nc, "mTransportInfo")
+                            } catch (_: Throwable) {
+                                null
+                            }
 
                         // Mutate — if any step fails, restore everything
                         try {
@@ -226,9 +241,10 @@ class HookEntry : IXposedHookLoadPackage {
                         XposedHelpers.setLongField(nc, "mTransportTypes", origTransport)
                         if (origCaps != null) XposedHelpers.setLongField(nc, "mNetworkCapabilities", origCaps)
                         XposedHelpers.setObjectField(nc, "mTransportInfo", origTi)
-                    } catch (_: Throwable) {}
+                    } catch (_: Throwable) {
+                    }
                 }
-            }
+            },
         )
         XposedBridge.log("VpnHide: hooked NetworkCapabilities.writeToParcel")
     }
@@ -241,8 +257,10 @@ class HookEntry : IXposedHookLoadPackage {
      */
     private fun hookNIWriteToParcel() {
         XposedHelpers.findAndHookMethod(
-            NetworkInfo::class.java, "writeToParcel",
-            android.os.Parcel::class.java, Integer.TYPE,
+            NetworkInfo::class.java,
+            "writeToParcel",
+            android.os.Parcel::class.java,
+            Integer.TYPE,
             object : XC_MethodHook() {
                 private val savedType = ThreadLocal<Int>()
 
@@ -265,9 +283,10 @@ class HookEntry : IXposedHookLoadPackage {
                     savedType.remove()
                     try {
                         XposedHelpers.setIntField(param.thisObject, "mNetworkType", origType)
-                    } catch (_: Throwable) {}
+                    } catch (_: Throwable) {
+                    }
                 }
-            }
+            },
         )
         XposedBridge.log("VpnHide: hooked NetworkInfo.writeToParcel")
     }
@@ -280,8 +299,10 @@ class HookEntry : IXposedHookLoadPackage {
      */
     private fun hookLPWriteToParcel() {
         XposedHelpers.findAndHookMethod(
-            LinkProperties::class.java, "writeToParcel",
-            android.os.Parcel::class.java, Integer.TYPE,
+            LinkProperties::class.java,
+            "writeToParcel",
+            android.os.Parcel::class.java,
+            Integer.TYPE,
             object : XC_MethodHook() {
                 private val savedIfname = ThreadLocal<String>()
 
@@ -304,9 +325,10 @@ class HookEntry : IXposedHookLoadPackage {
                     savedIfname.remove()
                     try {
                         XposedHelpers.setObjectField(param.thisObject, "mIfaceName", origIfname)
-                    } catch (_: Throwable) {}
+                    } catch (_: Throwable) {
+                    }
                 }
-            }
+            },
         )
         XposedBridge.log("VpnHide: hooked LinkProperties.writeToParcel")
     }

@@ -43,7 +43,7 @@
 /*  VPN interface name matching                                       */
 /* ------------------------------------------------------------------ */
 
-static const char * const vpn_prefixes[] = {
+static const char *const vpn_prefixes[] = {
 	"tun", "ppp", "tap", "wg", "ipsec", "xfrm", "utun", "l2tp", "gre",
 };
 
@@ -55,8 +55,8 @@ static bool is_vpn_ifname(const char *name)
 		return false;
 
 	for (i = 0; i < ARRAY_SIZE(vpn_prefixes); i++) {
-		if (strncmp(name, vpn_prefixes[i],
-			    strlen(vpn_prefixes[i])) == 0)
+		if (strncmp(name, vpn_prefixes[i], strlen(vpn_prefixes[i])) ==
+		    0)
 			return true;
 	}
 	if (strstr(name, "vpn") || strstr(name, "VPN"))
@@ -158,10 +158,10 @@ static int targets_open(struct inode *inode, struct file *file)
 }
 
 static const struct proc_ops targets_proc_ops = {
-	.proc_open    = targets_open,
-	.proc_read    = seq_read,
-	.proc_write   = targets_write,
-	.proc_lseek   = seq_lseek,
+	.proc_open = targets_open,
+	.proc_read = seq_read,
+	.proc_write = targets_write,
+	.proc_lseek = seq_lseek,
 	.proc_release = single_release,
 };
 
@@ -183,8 +183,7 @@ struct dev_ioctl_data {
 	struct ifreq *kifr; /* kernel pointer, saved from x2 */
 };
 
-static int dev_ioctl_entry(struct kretprobe_instance *ri,
-			   struct pt_regs *regs)
+static int dev_ioctl_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct dev_ioctl_data *data = (void *)ri->data;
 
@@ -197,8 +196,7 @@ static int dev_ioctl_entry(struct kretprobe_instance *ri,
 	return 0;
 }
 
-static int dev_ioctl_ret(struct kretprobe_instance *ri,
-			 struct pt_regs *regs)
+static int dev_ioctl_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct dev_ioctl_data *data = (void *)ri->data;
 	char name[IFNAMSIZ];
@@ -227,11 +225,11 @@ static int dev_ioctl_ret(struct kretprobe_instance *ri,
 }
 
 static struct kretprobe dev_ioctl_krp = {
-	.handler	= dev_ioctl_ret,
-	.entry_handler	= dev_ioctl_entry,
-	.data_size	= sizeof(struct dev_ioctl_data),
-	.maxactive	= 20,
-	.kp.symbol_name	= "dev_ioctl",
+	.handler = dev_ioctl_ret,
+	.entry_handler = dev_ioctl_entry,
+	.data_size = sizeof(struct dev_ioctl_data),
+	.maxactive = 20,
+	.kp.symbol_name = "dev_ioctl",
 };
 
 /* ================================================================== */
@@ -249,8 +247,7 @@ struct dev_ifconf_data {
 	bool target;
 };
 
-static int dev_ifconf_entry(struct kretprobe_instance *ri,
-			    struct pt_regs *regs)
+static int dev_ifconf_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct dev_ifconf_data *data = (void *)ri->data;
 
@@ -259,8 +256,7 @@ static int dev_ifconf_entry(struct kretprobe_instance *ri,
 	return 0;
 }
 
-static int dev_ifconf_ret(struct kretprobe_instance *ri,
-			  struct pt_regs *regs)
+static int dev_ifconf_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct dev_ifconf_data *data = (void *)ri->data;
 	struct ifconf ifc;
@@ -304,11 +300,11 @@ static int dev_ifconf_ret(struct kretprobe_instance *ri,
 }
 
 static struct kretprobe dev_ifconf_krp = {
-	.handler	= dev_ifconf_ret,
-	.entry_handler	= dev_ifconf_entry,
-	.data_size	= sizeof(struct dev_ifconf_data),
-	.maxactive	= 20,
-	.kp.symbol_name	= "dev_ifconf",
+	.handler = dev_ifconf_ret,
+	.entry_handler = dev_ifconf_entry,
+	.data_size = sizeof(struct dev_ifconf_data),
+	.maxactive = 20,
+	.kp.symbol_name = "dev_ifconf",
 };
 
 /* ================================================================== */
@@ -325,8 +321,7 @@ struct rtnl_fill_data {
 	bool should_filter;
 };
 
-static int rtnl_fill_entry(struct kretprobe_instance *ri,
-			   struct pt_regs *regs)
+static int rtnl_fill_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct rtnl_fill_data *data = (void *)ri->data;
 	struct net_device *dev;
@@ -351,8 +346,7 @@ static int rtnl_fill_entry(struct kretprobe_instance *ri,
 	return 0;
 }
 
-static int rtnl_fill_ret(struct kretprobe_instance *ri,
-			 struct pt_regs *regs)
+static int rtnl_fill_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct rtnl_fill_data *data = (void *)ri->data;
 
@@ -363,11 +357,11 @@ static int rtnl_fill_ret(struct kretprobe_instance *ri,
 }
 
 static struct kretprobe rtnl_fill_krp = {
-	.handler	= rtnl_fill_ret,
-	.entry_handler	= rtnl_fill_entry,
-	.data_size	= sizeof(struct rtnl_fill_data),
-	.maxactive	= 20,
-	.kp.symbol_name	= "rtnl_fill_ifinfo",
+	.handler = rtnl_fill_ret,
+	.entry_handler = rtnl_fill_entry,
+	.data_size = sizeof(struct rtnl_fill_data),
+	.maxactive = 20,
+	.kp.symbol_name = "rtnl_fill_ifinfo",
 };
 
 /* ================================================================== */
@@ -393,8 +387,7 @@ struct inet6_fill_data {
 	bool should_filter;
 };
 
-static int inet6_fill_entry(struct kretprobe_instance *ri,
-			    struct pt_regs *regs)
+static int inet6_fill_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct inet6_fill_data *data = (void *)ri->data;
 	struct inet6_ifaddr *ifa;
@@ -422,8 +415,7 @@ static int inet6_fill_entry(struct kretprobe_instance *ri,
 	return 0;
 }
 
-static int inet6_fill_ret(struct kretprobe_instance *ri,
-			  struct pt_regs *regs)
+static int inet6_fill_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct inet6_fill_data *data = (void *)ri->data;
 
@@ -437,11 +429,11 @@ static int inet6_fill_ret(struct kretprobe_instance *ri,
 }
 
 static struct kretprobe inet6_fill_krp = {
-	.handler	= inet6_fill_ret,
-	.entry_handler	= inet6_fill_entry,
-	.data_size	= sizeof(struct inet6_fill_data),
-	.maxactive	= 20,
-	.kp.symbol_name	= "inet6_fill_ifaddr",
+	.handler = inet6_fill_ret,
+	.entry_handler = inet6_fill_entry,
+	.data_size = sizeof(struct inet6_fill_data),
+	.maxactive = 20,
+	.kp.symbol_name = "inet6_fill_ifaddr",
 };
 
 /* ================================================================== */
@@ -459,8 +451,7 @@ struct inet_fill_data {
 	bool should_filter;
 };
 
-static int inet_fill_entry(struct kretprobe_instance *ri,
-			   struct pt_regs *regs)
+static int inet_fill_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct inet_fill_data *data = (void *)ri->data;
 	struct in_ifaddr *ifa;
@@ -484,8 +475,7 @@ static int inet_fill_entry(struct kretprobe_instance *ri,
 	return 0;
 }
 
-static int inet_fill_ret(struct kretprobe_instance *ri,
-			 struct pt_regs *regs)
+static int inet_fill_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct inet_fill_data *data = (void *)ri->data;
 
@@ -498,11 +488,11 @@ static int inet_fill_ret(struct kretprobe_instance *ri,
 }
 
 static struct kretprobe inet_fill_krp = {
-	.handler	= inet_fill_ret,
-	.entry_handler	= inet_fill_entry,
-	.data_size	= sizeof(struct inet_fill_data),
-	.maxactive	= 20,
-	.kp.symbol_name	= "inet_fill_ifaddr",
+	.handler = inet_fill_ret,
+	.entry_handler = inet_fill_entry,
+	.data_size = sizeof(struct inet_fill_data),
+	.maxactive = 20,
+	.kp.symbol_name = "inet_fill_ifaddr",
 };
 
 /* ================================================================== */
@@ -522,8 +512,7 @@ struct fib_route_data {
 	bool target;
 };
 
-static int fib_route_entry(struct kretprobe_instance *ri,
-			   struct pt_regs *regs)
+static int fib_route_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct fib_route_data *data = (void *)ri->data;
 
@@ -549,8 +538,7 @@ static int fib_route_entry(struct kretprobe_instance *ri,
  * synchronously under its own fd context — no concurrent access to
  * the same seq_file is possible between our entry and return handlers.
  */
-static int fib_route_ret(struct kretprobe_instance *ri,
-			 struct pt_regs *regs)
+static int fib_route_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct fib_route_data *data = (void *)ri->data;
 	struct seq_file *seq = data->seq;
@@ -583,7 +571,8 @@ static int fib_route_ret(struct kretprobe_instance *ri,
 
 		/* Extract the interface name (first field, tab-delimited) */
 		for (j = 0; j < IFNAMSIZ - 1 && j < (int)line_len &&
-		     src[j] != '\t' && src[j] != '\n'; j++)
+			    src[j] != '\t' && src[j] != '\n';
+		     j++)
 			ifname[j] = src[j];
 		ifname[j] = '\0';
 
@@ -605,11 +594,11 @@ static int fib_route_ret(struct kretprobe_instance *ri,
 }
 
 static struct kretprobe fib_route_krp = {
-	.handler	= fib_route_ret,
-	.entry_handler	= fib_route_entry,
-	.data_size	= sizeof(struct fib_route_data),
-	.maxactive	= 20,
-	.kp.symbol_name	= "fib_route_seq_show",
+	.handler = fib_route_ret,
+	.entry_handler = fib_route_entry,
+	.data_size = sizeof(struct fib_route_data),
+	.maxactive = 20,
+	.kp.symbol_name = "fib_route_seq_show",
 };
 
 /* ================================================================== */
@@ -625,12 +614,12 @@ struct kretprobe_reg {
 };
 
 static struct kretprobe_reg probes[] = {
-	{ &dev_ioctl_krp,   "dev_ioctl",          false },
-	{ &dev_ifconf_krp,  "dev_ifconf",         false },
-	{ &rtnl_fill_krp,   "rtnl_fill_ifinfo",   false },
-	{ &inet6_fill_krp,  "inet6_fill_ifaddr",  false },
-	{ &inet_fill_krp,   "inet_fill_ifaddr",   false },
-	{ &fib_route_krp,   "fib_route_seq_show", false },
+	{ &dev_ioctl_krp, "dev_ioctl", false },
+	{ &dev_ifconf_krp, "dev_ifconf", false },
+	{ &rtnl_fill_krp, "rtnl_fill_ifinfo", false },
+	{ &inet6_fill_krp, "inet6_fill_ifaddr", false },
+	{ &inet_fill_krp, "inet_fill_ifaddr", false },
+	{ &fib_route_krp, "fib_route_seq_show", false },
 };
 
 static int __init vpnhide_init(void)
@@ -656,13 +645,13 @@ static int __init vpnhide_init(void)
 	}
 	if (ok < ARRAY_SIZE(probes))
 		pr_warn(MODNAME ": only %d/%zu kretprobes registered — "
-			"some detection paths are not covered\n",
+				"some detection paths are not covered\n",
 			ok, ARRAY_SIZE(probes));
 
 	/* 0600: root-only read/write. UIDs are written here by service.sh
 	 * and WebUI (both root). Apps must not see the target list. */
-	targets_entry = proc_create("vpnhide_targets", 0600, NULL,
-				    &targets_proc_ops);
+	targets_entry =
+		proc_create("vpnhide_targets", 0600, NULL, &targets_proc_ops);
 
 	pr_info(MODNAME ": loaded — write UIDs to /proc/vpnhide_targets\n");
 	return 0;
@@ -679,7 +668,7 @@ static void __exit vpnhide_exit(void)
 		if (probes[i].registered) {
 			unregister_kretprobe(probes[i].krp);
 			pr_info(MODNAME ": kretprobe(%s) unregistered "
-				"(missed %d)\n",
+					"(missed %d)\n",
 				probes[i].name, probes[i].krp->nmissed);
 		}
 	}
