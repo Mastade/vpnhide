@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="branding/logo.png" width="200" alt="VPN Hide" />
+  <img src="assets/logo.png" width="200" alt="VPN Hide" />
 </p>
 
 <h1 align="center">VPN Hide</h1>
@@ -85,6 +85,16 @@ Alternatively, run `adb shell uname -r` to see the kernel version string.
 > **Important:** `android14` in the kernel string is NOT your Android version — it's the kernel generation. For example, Pixels from 6 to 9a all use the `android14-6.1` kernel regardless of whether they run Android 14 or 15.
 
 </details>
+
+## Screenshots
+
+| Dashboard — all OK | Dashboard — issues | Install recommendation |
+|:-:|:-:|:-:|
+| <img src="assets/screenshots/dashboard-all-ok.jpg" width="250"> | <img src="assets/screenshots/dashboard-issues.jpg" width="250"> | <img src="assets/screenshots/dashboard-install-recommendation.jpg" width="250"> |
+
+| Apps — Russian filter | Apps — help | Diagnostics |
+|:-:|:-:|:-:|
+| <img src="assets/screenshots/apps-filter-russian.jpg" width="250"> | <img src="assets/screenshots/apps-help-dialog.jpg" width="250"> | <img src="assets/screenshots/diagnostics-native.jpg" width="250"> |
 
 ## Verify
 

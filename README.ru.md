@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="branding/logo.png" width="200" alt="VPN Hide" />
+  <img src="assets/logo.png" width="200" alt="VPN Hide" />
 </p>
 
 <h1 align="center">VPN Hide</h1>
@@ -83,6 +83,16 @@ vpnhide решает обе проблемы двухуровневой архи
 > **Важно:** `android14` в строке ядра — это НЕ версия Android, а поколение ядра. Например, все Pixel с 6 по 9a используют ядро `android14-6.1` вне зависимости от того, стоит ли на них Android 14 или 15.
 
 </details>
+
+## Скриншоты
+
+| Обзор — всё ОК | Обзор — проблемы | Рекомендация установки |
+|:-:|:-:|:-:|
+| <img src="assets/screenshots/dashboard-all-ok.jpg" width="250"> | <img src="assets/screenshots/dashboard-issues.jpg" width="250"> | <img src="assets/screenshots/dashboard-install-recommendation.jpg" width="250"> |
+
+| Приложения — фильтр | Приложения — помощь | Диагностика |
+|:-:|:-:|:-:|
+| <img src="assets/screenshots/apps-filter-russian.jpg" width="250"> | <img src="assets/screenshots/apps-help-dialog.jpg" width="250"> | <img src="assets/screenshots/diagnostics-native.jpg" width="250"> |
 
 ## Проверка
 
