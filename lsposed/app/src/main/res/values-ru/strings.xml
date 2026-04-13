@@ -2,14 +2,13 @@
     <string name="app_name">VPN Hide</string>
     <string name="module_description">Скрывает активное VPN-соединение от выбранных приложений — NetworkCapabilities, NetworkInfo, NetworkInterface, LinkProperties, /proc/net</string>
 
-    <!-- Toolbar -->
-    <string name="toolbar_title">VPN Hide</string>
+    <!-- Navigation -->
+    <string name="tab_apps">Приложения</string>
+    <string name="tab_diagnostics">Диагностика</string>
 
-    <!-- Bottom bar -->
+    <!-- App picker -->
     <string name="selected_count">%d выбрано</string>
     <string name="btn_save">Сохранить</string>
-
-    <!-- Search / filter -->
     <string name="search_placeholder">Поиск приложений&#8230;</string>
     <string name="filter_system">Системные</string>
 
@@ -23,4 +22,15 @@
     <string name="save_failed_exit">Ошибка сохранения (код выхода %d)</string>
     <string name="save_failed_error">Ошибка сохранения: %s</string>
     <string name="save_failed_root">Ошибка сохранения: root-доступ запрещён</string>
+
+    <!-- Diagnostics -->
+    <string name="summary_running">Выполняется&#8230;</string>
+    <string name="summary_format">%1$d/%2$d пройдено</string>
+    <string name="btn_run_all">Запустить все проверки</string>
+    <string name="badge_pass">ОК</string>
+    <string name="badge_fail">ПРОВАЛ</string>
+    <string name="badge_info">ИНФО</string>
+    <string name="banner_warning">Включите VPN-соединение перед запуском проверок и убедитесь, что это приложение добавлено в список целевых.</string>
+    <string name="section_native">Нативный уровень (kmod / zygisk)</string>
+    <string name="section_java">Java API уровень (LSPosed)</string>
 </resources>

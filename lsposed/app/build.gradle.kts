@@ -17,6 +17,10 @@ android {
         targetSdk = 35
         versionCode = 402
         versionName = "0.4.2"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -64,6 +68,26 @@ android {
     packaging {
         resources.excludes += "META-INF/*.kotlin_module"
     }
+}
+
+// Build the Rust native checks library via cargo-ndk.
+val buildRustNative by tasks.registering {
+    outputs.upToDateWhen { false }
+
+    doLast {
+        exec {
+            workingDir = file("../native")
+            commandLine("cargo", "ndk", "-t", "arm64-v8a", "build", "--release")
+        }
+        val src = file("../native/target/aarch64-linux-android/release/libvpnhide_checks.so")
+        val dst = file("src/main/jniLibs/arm64-v8a/libvpnhide_checks.so")
+        dst.parentFile.mkdirs()
+        src.copyTo(dst, overwrite = true)
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn(buildRustNative)
 }
 
 dependencies {

@@ -14,6 +14,9 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -117,7 +120,49 @@ fun VpnHideApp() {
         when (rootState) {
             RootState.Checking -> RootCheckingScreen()
             RootState.Denied -> RootDeniedScreen()
-            RootState.Granted -> AppPickerScreen()
+            RootState.Granted -> MainScreen()
+        }
+    }
+}
+
+private enum class Tab { Apps, Diagnostics }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MainScreen() {
+    var currentTab by remember { mutableStateOf(Tab.Apps) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.app_name)) },
+                colors =
+                    TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+            )
+        },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = currentTab == Tab.Apps,
+                    onClick = { currentTab = Tab.Apps },
+                    icon = { Icon(Icons.Default.List, contentDescription = null) },
+                    label = { Text(stringResource(R.string.tab_apps)) },
+                )
+                NavigationBarItem(
+                    selected = currentTab == Tab.Diagnostics,
+                    onClick = { currentTab = Tab.Diagnostics },
+                    icon = { Icon(Icons.Default.CheckCircle, contentDescription = null) },
+                    label = { Text(stringResource(R.string.tab_diagnostics)) },
+                )
+            }
+        },
+    ) { innerPadding ->
+        when (currentTab) {
+            Tab.Apps -> AppPickerScreen(Modifier.padding(innerPadding))
+            Tab.Diagnostics -> DiagnosticsScreen(Modifier.padding(innerPadding))
         }
     }
 }
@@ -128,7 +173,7 @@ private fun RootCheckingScreen() {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.toolbar_title)) },
+                title = { Text(stringResource(R.string.app_name)) },
                 colors =
                     TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -162,7 +207,7 @@ private fun RootDeniedScreen() {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.toolbar_title)) },
+                title = { Text(stringResource(R.string.app_name)) },
                 colors =
                     TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -208,9 +253,8 @@ private fun RootDeniedScreen() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppPickerScreen() {
+fun AppPickerScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val pm = context.packageManager
 
@@ -287,23 +331,12 @@ private fun AppPickerScreen() {
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.toolbar_title)) },
-                colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ),
-            )
-        },
         bottomBar = {
             Surface(tonalElevation = 3.dp) {
                 Row(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .navigationBarsPadding()
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -325,6 +358,7 @@ private fun AppPickerScreen() {
                 }
             }
         },
+        modifier = modifier,
     ) { innerPadding ->
         Column(
             modifier =
