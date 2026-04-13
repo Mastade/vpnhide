@@ -1,5 +1,7 @@
 package dev.okhsunrog.vpnhide
 
+import android.database.sqlite.SQLiteDatabase
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
@@ -34,7 +36,8 @@ sealed interface ModuleState {
 }
 
 sealed interface LsposedState {
-    data object NotDetected : LsposedState
+    data object NotInstalled : LsposedState
+    data class InstalledInactive(val version: String?) : LsposedState
     data class NeedsReboot(val version: String?) : LsposedState
     data class Active(val version: String?, val targetCount: Int) : LsposedState
 }
@@ -61,6 +64,26 @@ sealed interface JavaResult {
 }
 
 private enum class NativeModuleKind { Kmod, Zygisk }
+
+private sealed interface LsposedRuntime {
+    data object Inactive : LsposedRuntime
+    data class Active(val version: String?) : LsposedRuntime
+}
+
+private sealed interface LsposedFramework {
+    data object NotInstalled : LsposedFramework
+    data class Installed(val disabled: Boolean) : LsposedFramework
+}
+
+private sealed interface LsposedConfig {
+    data object ModuleNotConfigured : LsposedConfig
+    data object Disabled : LsposedConfig
+    data class Enabled(
+        val entries: List<String>,
+        val hasSystemFramework: Boolean,
+        val extraEntries: List<String>,
+    ) : LsposedConfig
+}
 
 private data class DashboardState(
     val kmod: ModuleState,
@@ -210,19 +233,29 @@ private fun ModuleCard(name: String, state: ModuleState) {
 @Composable
 private fun LsposedCard(state: LsposedState) {
     val darkTheme = isSystemInDarkTheme()
+    val moduleName = stringResource(R.string.dashboard_lsposed_module)
     when (state) {
-        is LsposedState.NotDetected -> {
+        is LsposedState.NotInstalled -> {
             ModuleCardShell(
-                name = "LSPosed",
+                name = moduleName,
                 version = null,
                 subtitle = stringResource(R.string.dashboard_not_installed),
                 dotColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
             )
         }
+        is LsposedState.InstalledInactive -> {
+            ModuleCardShell(
+                name = moduleName,
+                version = state.version,
+                subtitle = stringResource(R.string.dashboard_installed_inactive),
+                dotColor = Color(0xFFFF9800),
+                containerColor = if (darkTheme) Color(0xFFE65100).copy(alpha = 0.2f) else Color(0xFFFFF3E0),
+            )
+        }
         is LsposedState.NeedsReboot -> {
             ModuleCardShell(
-                name = "LSPosed",
+                name = moduleName,
                 version = state.version,
                 subtitle = stringResource(R.string.dashboard_reboot_needed),
                 dotColor = Color(0xFFFF9800),
@@ -235,7 +268,7 @@ private fun LsposedCard(state: LsposedState) {
                     "\n" + stringResource(R.string.dashboard_running_version, state.version)
                 } else ""
             ModuleCardShell(
-                name = "LSPosed",
+                name = moduleName,
                 version = state.version,
                 subtitle = subtitle,
                 dotColor = Color(0xFF4CAF50),
@@ -497,6 +530,131 @@ private fun loadDashboardState(
         }
     }
 
+    fun resolveScopeEntryLabel(entry: String): String {
+        if (entry == "system" || entry == "system/0") return "System Framework"
+
+        val packageName = entry.substringBefore('/')
+        val userId = entry.substringAfter('/', "")
+        return try {
+            val appInfo = context.packageManager.getApplicationInfo(packageName, 0)
+            val appLabel = context.packageManager.getApplicationLabel(appInfo).toString().trim()
+            when {
+                appLabel.isEmpty() -> packageName
+                userId.isNotEmpty() && userId != "0" -> "$appLabel ($userId)"
+                else -> appLabel
+            }
+        } catch (_: PackageManager.NameNotFoundException) {
+            packageName
+        }
+    }
+
+    fun readLsposedConfig(): LsposedConfig? {
+        val dbCopy = File(context.cacheDir, "vpnhide_lspd_modules_config.db")
+        val dbWalCopy = File(context.cacheDir, "vpnhide_lspd_modules_config.db-wal")
+        val dbShmCopy = File(context.cacheDir, "vpnhide_lspd_modules_config.db-shm")
+        dbCopy.delete()
+        dbWalCopy.delete()
+        dbShmCopy.delete()
+
+        val dbPath = dbCopy.absolutePath
+        val walPath = dbWalCopy.absolutePath
+        val shmPath = dbShmCopy.absolutePath
+        val sourceBase = "/data/adb/lspd/config/modules_config.db"
+        val (copyExit, copyOut) = suExec(
+            "cat $sourceBase > $dbPath && " +
+                "chmod 644 $dbPath && " +
+                "(cat ${sourceBase}-wal > $walPath 2>/dev/null && chmod 644 $walPath || true) && " +
+                "(cat ${sourceBase}-shm > $shmPath 2>/dev/null && chmod 644 $shmPath || true) && " +
+                "ls -l $dbPath ${walPath} ${shmPath} 2>/dev/null || true",
+        )
+        if (copyExit != 0 || !dbCopy.isFile) {
+            Log.w(TAG, "failed to copy LSPosed config db for inspection: exit=$copyExit out=$copyOut")
+            return null
+        }
+        Log.i(TAG, "lsposed db copy: ${copyOut.trim()}")
+
+        return try {
+            SQLiteDatabase.openDatabase(dbPath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                db.rawQuery(
+                    "SELECT mid, enabled FROM modules WHERE module_pkg_name = ?",
+                    arrayOf(selfPkg),
+                ).use { moduleCursor ->
+                    if (!moduleCursor.moveToFirst()) {
+                        return LsposedConfig.ModuleNotConfigured
+                    }
+
+                    val mid = moduleCursor.getLong(0)
+                    val enabled = moduleCursor.getInt(1) != 0
+                    if (!enabled) {
+                        return LsposedConfig.Disabled
+                    }
+
+                    val scopeEntries = mutableListOf<Pair<String, Int>>()
+                    db.rawQuery(
+                        "SELECT app_pkg_name, user_id FROM scope WHERE mid = ? ORDER BY user_id, app_pkg_name",
+                        arrayOf(mid.toString()),
+                    ).use { scopeCursor ->
+                        while (scopeCursor.moveToNext()) {
+                            scopeEntries += scopeCursor.getString(0) to scopeCursor.getInt(1)
+                        }
+                    }
+                    val hasSystemFramework = scopeEntries.any { (pkg, userId) -> pkg == "system" && userId == 0 }
+                    val renderedEntries = scopeEntries.map { (pkg, userId) ->
+                        if (pkg == "system" && userId == 0) {
+                            "system"
+                        } else {
+                            "$pkg/$userId"
+                        }
+                    }
+                    val extraEntries = scopeEntries
+                        .filterNot { (pkg, userId) ->
+                            (pkg == "system" && userId == 0) || pkg == selfPkg
+                        }
+                        .map { (pkg, userId) -> "$pkg/$userId" }
+
+                    LsposedConfig.Enabled(
+                        entries = renderedEntries,
+                        hasSystemFramework = hasSystemFramework,
+                        extraEntries = extraEntries,
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "failed to inspect LSPosed config db: ${e.message}")
+            null
+        } finally {
+            dbCopy.delete()
+            dbWalCopy.delete()
+            dbShmCopy.delete()
+        }
+    }
+
+    fun detectLsposedFramework(): LsposedFramework {
+        val moduleDir = "/data/adb/modules/zygisk_vector"
+        val updateDir = "/data/adb/modules_update/zygisk_vector"
+        val (exitCode, out) = suExec(
+            "if [ -f $moduleDir/module.prop ]; then " +
+                "echo installed=1; " +
+                "echo disabled=$([ -f $moduleDir/disable ] && echo 1 || echo 0); " +
+            "elif [ -f $updateDir/module.prop ]; then " +
+                "echo installed=1; " +
+                "echo disabled=$([ -f $updateDir/disable ] && echo 1 || echo 0); " +
+            "else " +
+                "echo installed=0; " +
+            "fi",
+        )
+        val props = parseProps(out)
+        val installed = exitCode == 0 && props["installed"] == "1"
+        val disabled = props["disabled"] == "1"
+        val framework = if (installed) {
+            LsposedFramework.Installed(disabled = disabled)
+        } else {
+            LsposedFramework.NotInstalled
+        }
+        Log.i(TAG, "lsposed framework: $framework (raw=$out)")
+        return framework
+    }
+
     // kmod
     val (kmodInstalled, kmodVersion) = parseModuleProp(KMOD_MODULE_DIR)
     val (_, procExists) = suExec("[ -f $PROC_TARGETS ] && echo 1 || echo 0")
@@ -537,21 +695,70 @@ private fun loadDashboardState(
     val hookBootId = hookProps["boot_id"]
     val hooksActiveThisBoot = hookBootId != null && hookBootId == currentBootId.trim()
     val lsposedTargetCount = countTargets(LSPOSED_TARGETS)
-
-    val lsposed: LsposedState = when {
-        hookVersion == null -> LsposedState.NotDetected
-        !hooksActiveThisBoot -> LsposedState.NeedsReboot(hookVersion)
-        else -> LsposedState.Active(hookVersion, lsposedTargetCount)
+    val lsposedFramework = detectLsposedFramework()
+    val lsposedConfig = when (lsposedFramework) {
+        LsposedFramework.NotInstalled -> LsposedConfig.ModuleNotConfigured
+        is LsposedFramework.Installed -> if (lsposedFramework.disabled) {
+            LsposedConfig.Disabled
+        } else {
+            readLsposedConfig()
+        }
     }
-    Log.i(TAG, "lsposed: $lsposed (hookBootId=$hookBootId currentBootId=${currentBootId.trim()})")
+    val lsposedRuntime: LsposedRuntime = if (hooksActiveThisBoot) {
+        LsposedRuntime.Active(hookVersion)
+    } else {
+        LsposedRuntime.Inactive
+    }
+
+    val lsposed: LsposedState = when (lsposedRuntime) {
+        is LsposedRuntime.Active -> LsposedState.Active(lsposedRuntime.version, lsposedTargetCount)
+        LsposedRuntime.Inactive -> when (lsposedConfig) {
+            null -> LsposedState.InstalledInactive(null)
+            LsposedConfig.ModuleNotConfigured -> when (lsposedFramework) {
+                LsposedFramework.NotInstalled -> LsposedState.NotInstalled
+                is LsposedFramework.Installed -> LsposedState.InstalledInactive(null)
+            }
+            LsposedConfig.Disabled -> LsposedState.InstalledInactive(null)
+            is LsposedConfig.Enabled -> if (lsposedConfig.hasSystemFramework) {
+                LsposedState.NeedsReboot(hookVersion)
+            } else {
+                LsposedState.InstalledInactive(null)
+            }
+        }
+    }
+    Log.i(
+        TAG,
+        "lsposed: $lsposed (hookBootId=$hookBootId currentBootId=${currentBootId.trim()} framework=$lsposedFramework runtime=$lsposedRuntime config=$lsposedConfig)",
+    )
 
     // ── Issues ──
     val hasNative = kmod is ModuleState.Installed || zygisk is ModuleState.Installed
     if (!hasNative) {
         issues += res.getString(R.string.dashboard_issue_no_native)
     }
+    if (lsposedFramework is LsposedFramework.NotInstalled) {
+        issues += res.getString(R.string.dashboard_issue_lsposed_not_installed)
+    }
     if (lsposed is LsposedState.NeedsReboot) {
         issues += res.getString(R.string.dashboard_issue_reboot)
+    }
+    when (lsposedConfig) {
+        null -> issues += res.getString(R.string.dashboard_issue_lsposed_config_unreadable)
+        LsposedConfig.ModuleNotConfigured -> if (lsposedFramework is LsposedFramework.Installed) {
+            issues += res.getString(R.string.dashboard_issue_lsposed_not_enabled)
+        }
+        LsposedConfig.Disabled -> issues += res.getString(R.string.dashboard_issue_lsposed_not_enabled)
+        is LsposedConfig.Enabled -> {
+            if (!lsposedConfig.hasSystemFramework) {
+                issues += res.getString(R.string.dashboard_issue_lsposed_no_system_scope)
+            }
+            if (lsposedConfig.extraEntries.isNotEmpty()) {
+                issues += res.getString(
+                    R.string.dashboard_issue_lsposed_extra_scope,
+                    lsposedConfig.extraEntries.map(::resolveScopeEntryLabel).joinToString(", "),
+                )
+            }
+        }
     }
     val appVersion = BuildConfig.VERSION_NAME
     if (kmod is ModuleState.Installed && kmod.version != null && normalizeVersion(kmod.version) != normalizeVersion(appVersion)) {

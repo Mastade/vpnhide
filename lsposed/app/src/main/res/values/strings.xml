@@ -43,7 +43,8 @@
     <!-- Dashboard -->
     <string name="dashboard_modules">Modules</string>
     <string name="dashboard_kmod">Kernel module</string>
-    <string name="dashboard_zygisk">Zygisk</string>
+    <string name="dashboard_zygisk">VPN Hide Zygisk module</string>
+    <string name="dashboard_lsposed_module">VPN Hide LSPosed hook</string>
     <string name="dashboard_not_installed">Not installed</string>
     <string name="dashboard_installed_inactive">Installed, inactive</string>
     <string name="dashboard_active_targets">Active · %d target(s)</string>
@@ -61,7 +62,12 @@
     <string name="dashboard_no_vpn">No active VPN. Turn on VPN to check protection status.</string>
     <string name="dashboard_issues">Issues (%d)</string>
     <string name="dashboard_issue_no_native">No native module installed. Install kmod or zygisk for full protection.</string>
-    <string name="dashboard_issue_reboot">LSPosed hooks need a reboot to activate.</string>
+    <string name="dashboard_issue_lsposed_not_installed">LSPosed/Vector is not installed. Install it and enable the VPN Hide module for System Framework.</string>
+    <string name="dashboard_issue_reboot">LSPosed is configured correctly, but its hooks are not active yet. Reboot the device to activate them.</string>
+    <string name="dashboard_issue_lsposed_config_unreadable">Failed to read LSPosed/Vector configuration. Reopen LSPosed/Vector, verify that VPN Hide is enabled there, and then reopen VPN Hide.</string>
+    <string name="dashboard_issue_lsposed_not_enabled">VPN Hide is present in LSPosed/Vector, but the module is disabled. Enable VPN Hide in LSPosed/Vector and keep System Framework in its scope.</string>
+    <string name="dashboard_issue_lsposed_no_system_scope">VPN Hide is enabled in LSPosed/Vector, but System Framework is missing from its scope. Add System Framework to the VPN Hide scope in LSPosed/Vector.</string>
+    <string name="dashboard_issue_lsposed_extra_scope">VPN Hide should stay scoped only to System Framework in LSPosed/Vector. Remove these apps from the VPN Hide scope: %1$s. Use the Apps tab in VPN Hide for filtering instead.</string>
     <string name="dashboard_issue_no_targets">No target apps configured. Go to Apps tab to select apps.</string>
     <string name="dashboard_issue_version_mismatch">Module version mismatch: running %1$s, installed %2$s. Reboot to apply the update.</string>
     <string name="dashboard_issue_update_kmod">Kernel module version %1$s is older than app version %2$s. Update the kernel module.</string>

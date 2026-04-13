@@ -27,7 +27,8 @@
     <!-- Dashboard -->
     <string name="dashboard_modules">Модули</string>
     <string name="dashboard_kmod">Модуль ядра</string>
-    <string name="dashboard_zygisk">Zygisk</string>
+    <string name="dashboard_zygisk">VPN Hide Zygisk модуль</string>
+    <string name="dashboard_lsposed_module">VPN Hide LSPosed-хук</string>
     <string name="dashboard_not_installed">Не установлен</string>
     <string name="dashboard_installed_inactive">Установлен, неактивен</string>
     <string name="dashboard_active_targets">Активен · целей: %d</string>
@@ -45,7 +46,12 @@
     <string name="dashboard_no_vpn">VPN не активен. Включите VPN для проверки защиты.</string>
     <string name="dashboard_issues">Проблемы (%d)</string>
     <string name="dashboard_issue_no_native">Нативный модуль не установлен. Установите kmod или zygisk для полной защиты.</string>
-    <string name="dashboard_issue_reboot">Хуки LSPosed требуют перезагрузки для активации.</string>
+    <string name="dashboard_issue_lsposed_not_installed">LSPosed/Vector не установлен. Установите его и включите модуль VPN Hide для System Framework.</string>
+    <string name="dashboard_issue_reboot">LSPosed настроен правильно, но его хуки ещё не активны. Перезагрузите устройство, чтобы активировать их.</string>
+    <string name="dashboard_issue_lsposed_config_unreadable">Не удалось прочитать конфигурацию LSPosed/Vector. Откройте LSPosed/Vector, проверьте что VPN Hide там включён, затем снова откройте VPN Hide.</string>
+    <string name="dashboard_issue_lsposed_not_enabled">VPN Hide найден в LSPosed/Vector, но модуль выключен. Включите VPN Hide в LSPosed/Vector и оставьте в scope System Framework.</string>
+    <string name="dashboard_issue_lsposed_no_system_scope">VPN Hide включён в LSPosed/Vector, но в его scope отсутствует System Framework. Добавьте System Framework в scope модуля VPN Hide в LSPosed/Vector.</string>
+    <string name="dashboard_issue_lsposed_extra_scope">VPN Hide в LSPosed/Vector должен быть включён только для System Framework. Уберите из scope модуля VPN Hide эти приложения: %1$s. Для фильтрации используйте вкладку «Приложения» в VPN Hide.</string>
     <string name="dashboard_issue_no_targets">Целевые приложения не настроены. Перейдите во вкладку «Приложения».</string>
     <string name="dashboard_issue_version_mismatch">Несоответствие версий модуля: запущена %1$s, установлена %2$s. Перезагрузитесь для обновления.</string>
     <string name="dashboard_issue_update_kmod">Версия модуля ядра %1$s старее версии приложения %2$s. Обновите модуль ядра.</string>
