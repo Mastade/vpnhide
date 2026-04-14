@@ -165,13 +165,13 @@ jobs:
       - name: Build APK
         run: |
           cd "$GITHUB_WORKSPACE/lsposed" && ./gradlew --no-daemon assembleRelease
-          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/vpnhide-lsposed.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/vpnhide.apk"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vpnhide-lsposed
-          path: vpnhide-lsposed.apk
+          name: vpnhide
+          path: vpnhide.apk
           if-no-files-found: error
 
   release:

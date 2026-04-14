@@ -27,7 +27,7 @@ The target app's process is completely untouched (with kmod + lsposed) — no Xp
 
 ## Which modules do I need?
 
-You always need the **VPN Hide app** (`vpnhide-lsposed.apk`) plus one native module. The app's **Dashboard** will detect your device and recommend the right one:
+You always need the **VPN Hide app** (`vpnhide.apk`) plus one native module. The app's **Dashboard** will detect your device and recommend the right one:
 
 - **`kmod`** (recommended) — fully out-of-process, invisible to anti-tamper. Requires a supported GKI kernel.
 - **`zygisk`** — use this if your kernel isn't supported by kmod.
@@ -40,7 +40,7 @@ Download the latest release from [Releases](https://github.com/okhsunrog/vpnhide
 
 ### Step 1 — VPN Hide app + LSPosed
 
-1. Install `vpnhide-lsposed.apk` as a regular app
+1. Install `vpnhide.apk` as a regular app
 2. In LSPosed manager, enable the VPN Hide module and add **"System Framework"** to its scope
 3. Reboot (required — LSPosed hooks are injected into `system_server` at boot, so the module must be active before `system_server` starts)
 4. Open the VPN Hide app and grant it root access (Magisk will prompt automatically; on KernelSU-Next, grant permission manually in the manager)
