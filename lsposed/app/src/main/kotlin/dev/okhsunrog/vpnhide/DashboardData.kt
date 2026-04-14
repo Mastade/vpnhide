@@ -368,11 +368,11 @@ internal fun loadDashboardState(
                 .flatMap { id ->
                     listOf("/data/adb/modules/$id", "/data/adb/modules_update/$id")
                 }.joinToString("; ") { dir ->
-            "if [ -f $dir/module.prop ]; then " +
-                "echo installed=1; " +
-                "echo disabled=\$([ -f $dir/disable ] && echo 1 || echo 0); " +
-                "exit 0; fi"
-        } + "; echo installed=0"
+                    "if [ -f $dir/module.prop ]; then " +
+                        "echo installed=1; " +
+                        "echo disabled=\$([ -f $dir/disable ] && echo 1 || echo 0); " +
+                        "exit 0; fi"
+                } + "; echo installed=0"
         val (exitCode, out) = suExec(checkScript)
         val props = parseProps(out)
         val installed = exitCode == 0 && props["installed"] == "1"
