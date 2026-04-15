@@ -686,6 +686,18 @@ pub unsafe extern "C" fn hooked_recvmsg(fd: c_int, msg: *mut libc::msghdr, flags
 
     let ret = unsafe { real(fd, msg, flags) };
 
+    // If we're inside a getifaddrs (either the app-visible hooked_getifaddrs
+    // or the nested real_getifaddrs that collect_vpn_iface_indices drives),
+    // pass through without touching the buffer. Bionic's getifaddrs uses
+    // recvmsg on a netlink socket to read RTM_GETLINK/RTM_GETADDR responses;
+    // without this guard we would re-enter collect_vpn_iface_indices on each
+    // of those recvmsg calls, which calls real_getifaddrs again, which does
+    // more recvmsgs — exponential recursion that hangs the caller the first
+    // time any target app enumerates interfaces (issue #16).
+    if IN_GETIFADDRS.with(|f| f.get()) {
+        return ret;
+    }
+
     // Need at least one nlmsghdr (16 bytes) to inspect.
     if ret <= 0 || msg.is_null() {
         return ret;
@@ -760,6 +772,11 @@ pub unsafe extern "C" fn hooked_recv(
     };
 
     let ret = unsafe { real(fd, buf, len, flags) };
+
+    // Same recursion guard as hooked_recvmsg — see the comment there.
+    if IN_GETIFADDRS.with(|f| f.get()) {
+        return ret;
+    }
 
     if ret < 16 || buf.is_null() {
         return ret;
