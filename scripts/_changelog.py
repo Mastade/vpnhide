@@ -3,8 +3,17 @@
 Used by `changelog-add.py` (append entries) and `update-version.py`
 (rotate top-level into history when VERSION advances).
 
-Source of truth: `lsposed/app/src/main/assets/changelog.json`.
-Generated artifact: `update-json/changelog.md` (last MD_RECENT_VERSIONS, en only).
+Source of truth: `lsposed/app/src/main/assets/changelog.json` (bilingual,
+full history).
+
+Two generated markdown artifacts (en only, overwritten on every script
+run — never edited by hand):
+
+* `CHANGELOG.md` at the repo root — full history, Keep a Changelog
+  convention. Human-facing, linked from the GitHub repo page.
+* `update-json/changelog.md` — the last MD_RECENT_VERSIONS sections
+  only. Served at a stable URL referenced from module update-json
+  files; Magisk/KSU fetches it and displays it in the update popup.
 """
 
 from __future__ import annotations
@@ -14,10 +23,20 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 JSON_PATH = REPO_ROOT / "lsposed/app/src/main/assets/changelog.json"
-MD_PATH = REPO_ROOT / "update-json/changelog.md"
+FULL_MD_PATH = REPO_ROOT / "CHANGELOG.md"
+SHORT_MD_PATH = REPO_ROOT / "update-json/changelog.md"
 
 VALID_TYPES = ("added", "changed", "fixed", "removed", "deprecated", "security")
 MD_RECENT_VERSIONS = 5
+
+_KEEP_A_CHANGELOG_HEADER = """# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+"""
 
 
 def load_json() -> dict:
@@ -31,33 +50,41 @@ def save_json(data: dict) -> None:
     )
 
 
-def render_md(data: dict) -> str:
-    """Render markdown changelog from JSON.
+def _render_entry(entry: dict, out: list[str]) -> None:
+    out.append(f"## v{entry['version']}")
+    out.append("")
+    sections_by_type = {s["type"]: s for s in entry.get("sections", [])}
+    for type_ in VALID_TYPES:
+        section = sections_by_type.get(type_)
+        if not section or not section.get("items"):
+            continue
+        out.append(f"### {type_.title()}")
+        for item in section["items"]:
+            out.append(f"- {item['en']}")
+        out.append("")
 
-    Format matches the existing handwritten one: `## vX.Y.Z`, `### Section`,
-    `- entry`, blank lines between sections and versions. Only en text.
-    """
+
+def render_full_md(data: dict) -> str:
+    """Full history, with Keep a Changelog header on top."""
     entries = [data] + list(data.get("history", []))
-    entries = entries[:MD_RECENT_VERSIONS]
-
     out: list[str] = []
     for entry in entries:
-        out.append(f"## v{entry['version']}")
-        out.append("")
-        sections_by_type = {s["type"]: s for s in entry.get("sections", [])}
-        for type_ in VALID_TYPES:
-            section = sections_by_type.get(type_)
-            if not section or not section.get("items"):
-                continue
-            out.append(f"### {type_.title()}")
-            for item in section["items"]:
-                out.append(f"- {item['en']}")
-            out.append("")
+        _render_entry(entry, out)
+    return _KEEP_A_CHANGELOG_HEADER + "\n".join(out).rstrip() + "\n"
+
+
+def render_short_md(data: dict) -> str:
+    """Last MD_RECENT_VERSIONS only, no preamble. For Magisk/KSU popup."""
+    entries = ([data] + list(data.get("history", [])))[:MD_RECENT_VERSIONS]
+    out: list[str] = []
+    for entry in entries:
+        _render_entry(entry, out)
     return "\n".join(out).rstrip() + "\n"
 
 
 def write_md(data: dict) -> None:
-    MD_PATH.write_text(render_md(data), encoding="utf-8")
+    FULL_MD_PATH.write_text(render_full_md(data), encoding="utf-8")
+    SHORT_MD_PATH.write_text(render_short_md(data), encoding="utf-8")
 
 
 def append_entry(data: dict, type_: str, en: str, ru: str) -> None:

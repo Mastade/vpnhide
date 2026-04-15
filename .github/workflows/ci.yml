@@ -207,11 +207,11 @@ jobs:
           path: dist/
           merge-multiple: true
 
-      - name: Extract release notes from changelog
+      - name: Extract release notes from CHANGELOG.md
         run: |
           TAG="${{ github.ref_name }}"
           awk -v t="^## ${TAG}\$" '$0~t{flag=1;next} /^## v/{flag=0} flag' \
-            update-json/changelog.md > release-notes.md
+            CHANGELOG.md > release-notes.md
           echo "=== release-notes.md ==="
           cat release-notes.md
 
