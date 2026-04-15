@@ -22,7 +22,7 @@ Existing modules like [NoVPNDetect](https://bitbucket.org/yuri-project/novpndete
 1. **Invisible to anti-tamper** — any app with memory injection checks detects the Xposed hooks and refuses to work. The NoVPNDetect Enhanced author explicitly states: *"The module will not work if the target app has LSPosed protection or memory injection checks. For example, MirPay, T-Bank."*
 2. **No native coverage** — apps using C/C++ code, cross-platform frameworks (Flutter, React Native), or direct syscalls can detect VPN through `ioctl`, `getifaddrs`, netlink sockets, and `/proc/net/*`. These vectors are completely missed by Java-only hooks.
 
-vpnhide solves both problems with a two-layer architecture:
+vpnhide solves both problems with a layered architecture:
 
 **Layer 1 — Java API (lsposed module):** hooks `system_server`, not the target app. `NetworkCapabilities`, `NetworkInfo`, and `LinkProperties` are filtered at the Binder level *before* data reaches the app's process. The app receives clean data over IPC — no injection into its process, nothing for anti-tamper to detect.
 
@@ -30,7 +30,20 @@ vpnhide solves both problems with a two-layer architecture:
 - **kmod** (recommended) — kernel-level `kretprobe` hooks. Filters `ioctl` (SIOCGIFFLAGS, SIOCGIFNAME, SIOCGIFCONF), `getifaddrs`/netlink dumps (RTM_GETLINK, RTM_GETADDR), and `/proc/net/*` reads — all before the syscall returns to userspace. Zero in-process footprint. No library injection. Nothing to detect.
 - **zygisk** (alternative) — inline-hooks `libc.so` inside the app process. Same native coverage as kmod but runs in-process, so it's theoretically detectable by advanced anti-tamper. Use this if your kernel isn't supported by kmod.
 
-The target app's process is completely untouched (with kmod + lsposed) — no Xposed, no inline hooks, no modified memory regions. This makes vpnhide work with MirPay, T-Bank, Alfa-Bank and other banking/government apps that actively detect and block Xposed-based modules.
+**Layer 3 — Additional app-level controls (integrated into the VPN Hide app):**
+- **Interface hiding** — hide VPN interfaces, routes, and Java API VPN state from selected apps
+- **Port hiding** — block selected apps from reaching `127.0.0.1` / `::1` so they cannot probe locally bound VPN / proxy daemons
+- **App hiding** — hide selected apps from selected observer apps at the PackageManager level
+
+The target app's process is completely untouched (with kmod + lsposed) — no Xposed, no inline hooks, no modified memory regions. Because of that, vpnhide works with banking and government apps that actively detect and block Xposed-based modules.
+
+## What vpnhide hides
+
+vpnhide is not just one toggle. It combines three different protections that can be enabled per app:
+
+1. **Interface hiding** — the core VPN-hiding layer. It removes VPN interfaces and routes from native APIs (`ioctl`, `getifaddrs`, `/proc/net/*`, `NetworkInterface`) and from Java APIs (`NetworkCapabilities`, `NetworkInfo`, `LinkProperties`).
+2. **Port hiding** — blocks localhost access for selected apps so they cannot detect Clash, sing-box, V2Ray, Happ, and similar tools by probing local ports.
+3. **App hiding** — hides selected installed apps from selected observer apps, useful against package visibility checks for VPN/proxy clients.
 
 ## Which modules do I need?
 
@@ -65,9 +78,15 @@ Install the recommended module:
 
 Reboot after installing the native module.
 
-### Step 3 — Select target apps
+### Step 3 — Configure protections
 
-Open the VPN Hide app → **Apps** tab. Use the **L** / **K** / **Z** toggles to control which protection layers apply to each app (LSPosed, Kernel module, Zygisk), or tap the row to toggle all layers at once. Tap Save.
+Open the VPN Hide app → **Protection** tab.
+
+- **Tun** mode: use the **L** / **K** / **Z** toggles to control interface hiding layers for each app (LSPosed, Kernel module, Zygisk), or tap the row to toggle all layers at once
+- **Apps** mode: choose which apps should be hidden and which apps should act as observers
+- **Ports** mode: choose which apps should be blocked from accessing localhost ports
+
+Tap Save after making changes.
 
 After changing targets, force-stop and restart the affected apps — hooks take effect on the next app launch.
 
@@ -99,9 +118,13 @@ Alternatively, run `adb shell uname -r` to see the kernel version string.
 |:-:|:-:|:-:|
 | <img src="assets/screenshots/dashboard-all-ok.jpg" width="250"> | <img src="assets/screenshots/dashboard-issues.jpg" width="250"> | <img src="assets/screenshots/dashboard-install-recommendation.jpg" width="250"> |
 
-| Apps — Russian filter | Apps — help | Diagnostics |
+| Protection — Tun | App hiding | Ports hiding |
 |:-:|:-:|:-:|
-| <img src="assets/screenshots/apps-filter-russian.jpg" width="250"> | <img src="assets/screenshots/apps-help-dialog.jpg" width="250"> | <img src="assets/screenshots/diagnostics-native.jpg" width="250"> |
+| <img src="assets/screenshots/apps-filter-russian.jpg" width="250"> | <img src="assets/screenshots/app-hiding-list.jpg" width="250"> | <img src="assets/screenshots/ports-hiding-list.jpg" width="250"> |
+
+| App hiding help | Ports hiding help | Diagnostics |
+|:-:|:-:|:-:|
+| <img src="assets/screenshots/app-hiding-help.jpg" width="250"> | <img src="assets/screenshots/ports-hiding-help.jpg" width="250"> | <img src="assets/screenshots/diagnostics-native.jpg" width="250"> |
 
 ## Verify
 
@@ -123,7 +146,7 @@ Any issues found are shown as actionable cards with specific instructions.
 | Directory | What | How |
 |---|---|---|
 | **[kmod/](kmod/)** | Kernel module (C) | `kretprobe` hooks in kernel space. Zero footprint in the target app's process. ([details](kmod/README.md)) |
-| **[lsposed/](lsposed/)** | LSPosed module + app (Kotlin + Rust) | Hooks `writeToParcel` in `system_server` for per-UID Binder filtering. The APK provides a dashboard (module status, version checks, LSPosed config validation, install recommendations), per-app layer toggles, and diagnostics. ([details](lsposed/README.md)) |
+| **[lsposed/](lsposed/)** | LSPosed module + app (Kotlin + Rust) | Hooks `writeToParcel` in `system_server` for per-UID Binder filtering. The APK provides a dashboard (module status, version checks, LSPosed config validation, install recommendations), Protection modes for interface / port / app hiding, and diagnostics. ([details](lsposed/README.md)) |
 | **[zygisk/](zygisk/)** | Zygisk module (Rust) | Inline-hooks `libc.so` in the target app's process. Alternative to kmod. ([details](zygisk/README.md)) |
 
 ## Detection coverage
