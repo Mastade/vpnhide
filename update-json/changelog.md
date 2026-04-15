@@ -1,3 +1,20 @@
+## v0.6.0
+
+### Added
+- App hiding mode in Protection — hide selected apps from selected observer apps at the PackageManager level. Observer apps can no longer list, resolve, or query hidden apps.
+- Ports hiding mode plus new `vpnhide-ports.zip` module — block selected apps from reaching `127.0.0.1` / `::1` ports to hide locally running VPN/proxy daemons (Clash, sing-box, V2Ray, Happ, etc.).
+- Ports module integration in the app dashboard — shows install state, active rules, observer count, and version mismatch/update warnings.
+
+### Changed
+- The old Apps tab is now Protection, split into three modes: Tun, Apps, and Ports.
+- Ports rules apply immediately on Save and are restored automatically on boot.
+- `vpnhide-ports.zip` is included in the release/update pipeline with Magisk/KernelSU update metadata.
+
+### Fixed
+- Fixed `LinkProperties` filtering so VPN routes are stripped more reliably from app-visible network snapshots.
+- Fixed `SIOCGIFCONF` filtering on some Android 12/13 `5.10` kernels where the previous hook could succeed but never fire.
+- Fixed debug log collection so app logcat entries are captured reliably on devices where `logcat` via `su` misses them.
+
 ## v0.5.3
 
 ### Added
