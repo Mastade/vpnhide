@@ -3,6 +3,7 @@ package dev.okhsunrog.vpnhide
 import android.net.LinkProperties
 import android.net.NetworkCapabilities
 import android.net.NetworkInfo
+import android.net.RouteInfo
 import android.os.Binder
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
@@ -83,6 +84,73 @@ class HookEntry : IXposedHookLoadPackage {
             n.startsWith("l2tp") ||
             n.startsWith("gre") ||
             n.contains("vpn")
+    }
+
+    private fun sanitizeLinkProperties(copy: LinkProperties): Boolean {
+        var modified = false
+
+        val ifaceName = XposedHelpers.getObjectField(copy, "mIfaceName") as? String
+        if (ifaceName != null && isVpnInterfaceName(ifaceName)) {
+            XposedHelpers.setObjectField(copy, "mIfaceName", null)
+            modified = true
+        }
+
+        try {
+            @Suppress("UNCHECKED_CAST")
+            val routesField = XposedHelpers.getObjectField(copy, "mRoutes") as? MutableList<RouteInfo>
+            if (routesField != null) {
+                val filtered =
+                    routesField.filterNot { route ->
+                        val routeIface = route.`interface`
+                        routeIface != null && isVpnInterfaceName(routeIface)
+                    }
+                if (filtered.size != routesField.size) {
+                    routesField.clear()
+                    routesField.addAll(filtered)
+                    modified = true
+                }
+            }
+        } catch (t: Throwable) {
+            XposedBridge.log("VpnHide: failed to sanitize mRoutes: ${t.message}")
+        }
+
+        try {
+            @Suppress("UNCHECKED_CAST")
+            val stacked = XposedHelpers.getObjectField(copy, "mStackedLinks") as? MutableMap<String, LinkProperties>
+            if (stacked != null && stacked.isNotEmpty()) {
+                val filtered = LinkedHashMap<String, LinkProperties>()
+                for ((key, value) in stacked) {
+                    val stackedCopy =
+                        try {
+                            val ctor = LinkProperties::class.java.getDeclaredConstructor(LinkProperties::class.java)
+                            ctor.isAccessible = true
+                            ctor.newInstance(value) as LinkProperties
+                        } catch (_: Throwable) {
+                            value
+                        }
+                    val stackedModified = sanitizeLinkProperties(stackedCopy)
+                    val stackedIface = XposedHelpers.getObjectField(stackedCopy, "mIfaceName") as? String
+                    if (stackedIface == null && stackedCopy.routes.isEmpty()) {
+                        if (stackedModified || isVpnInterfaceName(key)) {
+                            modified = true
+                        } else {
+                            filtered[key] = stackedCopy
+                        }
+                    } else {
+                        if (stackedModified || stackedCopy !== value) modified = true
+                        filtered[key] = stackedCopy
+                    }
+                }
+                if (filtered.size != stacked.size || modified) {
+                    stacked.clear()
+                    stacked.putAll(filtered)
+                }
+            }
+        } catch (t: Throwable) {
+            XposedBridge.log("VpnHide: failed to sanitize mStackedLinks: ${t.message}")
+        }
+
+        return modified
     }
 
     // ==================================================================
@@ -316,19 +384,10 @@ class HookEntry : IXposedHookLoadPackage {
                     if (!isTargetCaller()) return
                     val lp = param.thisObject as LinkProperties
                     try {
-                        val ifname = XposedHelpers.getObjectField(lp, "mIfaceName") as? String ?: return
-                        if (!isVpnInterfaceName(ifname)) return
-
                         val ctor = LinkProperties::class.java.getDeclaredConstructor(LinkProperties::class.java)
                         ctor.isAccessible = true
                         val copy = ctor.newInstance(lp) as LinkProperties
-                        XposedHelpers.setObjectField(copy, "mIfaceName", null)
-                        try {
-                            @Suppress("UNCHECKED_CAST")
-                            val routes = XposedHelpers.getObjectField(copy, "mRoutes") as? MutableList<*>
-                            routes?.clear()
-                        } catch (_: Throwable) {
-                        }
+                        if (!sanitizeLinkProperties(copy)) return
 
                         val parcel = param.args[0] as android.os.Parcel
                         val flags = param.args[1] as Int
