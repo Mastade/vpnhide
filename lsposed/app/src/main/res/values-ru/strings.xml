@@ -105,6 +105,17 @@
     <string name="dashboard_issue_ports_version_mismatch">Несоответствие версий модуля скрытия портов: модуль %1$s, приложение %2$s. Откройте KernelSU/Magisk → Модули для обновления.</string>
     <string name="dashboard_running_version">Версия запущенного модуля: %s</string>
 
+    <!-- kmod variant / load diagnostics -->
+    <string name="dashboard_issue_kmod_wrong_variant">Неправильный вариант модуля ядра: установлен %1$s, вашему ядру нужен %2$s. Удалите текущий kmod и установите %3$s из последнего релиза.</string>
+    <string name="dashboard_issue_kmod_unknown_variant">Модуль ядра установлен, но не загружается, и в zip не указано, под какой GKI-вариант он собран. Переустановите %1$s из последнего релиза, чтобы убедиться, что он подходит вашему ядру.</string>
+    <string name="dashboard_issue_kmod_load_failed">Модуль ядра не загрузился. Ошибка insmod: %1$s. Подробности в Диагностика → Kmod load trace.</string>
+    <string name="dashboard_issue_kmod_not_supported_kernel">Для вашего ядра (%1$s) нет подходящего варианта vpnhide-kmod. Удалите модуль kmod и установите вместо него %2$s.</string>
+    <string name="dashboard_issue_kprobes_missing">Ваше ядро собрано без CONFIG_KRETPROBES. Модуль ядра VPN Hide не может работать на таком ядре. Удалите kmod и используйте vpnhide-zygisk.zip.</string>
+
+    <!-- Diagnostics: kmod load trace -->
+    <string name="diag_kmod_load_trace_title">Трасса загрузки kmod</string>
+    <string name="diag_kmod_load_trace_description">Записывается скриптом post-fs-data.sh модуля ядра при последней загрузке устройства. Приложите этот блок, если есть проблемы с загрузкой модуля.</string>
+
     <!-- Update -->
     <string name="update_available_title">Доступно обновление</string>
     <string name="update_available_subtitle">Доступна версия %1$s</string>
