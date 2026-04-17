@@ -1,27 +1,48 @@
 {
   "unreleased": {
-    "sections": [
-      {
-        "type": "added",
-        "items": [
-          {
-            "en": "Save button next to Share for full-system logcat recordings — writes the capture via the Storage Access Framework to a user-picked location (previously only Share was available, which didn't always persist the file when sharing to a file manager).",
-            "ru": "Кнопка «Сохранить» рядом с «Поделиться» для записи полного системного logcat — сохраняет файл через Storage Access Framework в выбранное место (раньше была только «Поделиться», и через диалог «Сохранить в файлы» файл не всегда сохранялся)."
-          }
-        ]
-      },
-      {
-        "type": "changed",
-        "items": [
-          {
-            "en": "Module zips and APK now include git provenance in the version string. Official release builds from a tag stay at the clean version (e.g. 0.6.2); intermediate builds from main or a feature branch show up as 0.6.2-5-gabc1234 (or -dirty) in the Magisk/KSU manager and Android Settings, so debug-log submissions identify the exact commit.",
-            "ru": "Zip-модули и APK теперь включают git-провенанс в строку версии. Официальные релизные сборки с тега остаются с чистой версией (например, 0.6.2); промежуточные сборки с main или feature-ветки отображаются как 0.6.2-5-gabc1234 (или -dirty) в Magisk/KSU-менеджере и настройках Android — по логам сразу видно, какой именно коммит у пользователя."
-          }
-        ]
-      }
-    ]
+    "sections": []
   },
   "history": [
+    {
+      "version": "0.6.2",
+      "sections": [
+        {
+          "type": "added",
+          "items": [
+            {
+              "en": "Full system logcat recording on the Diagnostics screen — Start/Stop an unfiltered capture of all logcat buffers (main/system/crash/events/radio), then Save to a user-picked location via the Storage Access Framework or Share through the system sheet. Useful for submitting diagnostic logs straight from the app without running adb logcat by hand.",
+              "ru": "Запись полного системного logcat на экране диагностики — Start/Stop для нефильтрованной записи всех буферов logcat (main/system/crash/events/radio), затем Save в выбранное место через Storage Access Framework или Share через системный диалог. Позволяет отправлять диагностические логи прямо из приложения, без ручного запуска adb logcat."
+            }
+          ]
+        },
+        {
+          "type": "changed",
+          "items": [
+            {
+              "en": "Module zips and APK now include git provenance in the version string. Official release builds from a tag stay at the clean version (e.g. 0.6.2); intermediate builds from main or a feature branch show up as 0.6.2-5-gabc1234 (or -dirty) in the Magisk/KSU manager and Android Settings, so debug-log submissions identify the exact commit.",
+              "ru": "Zip-модули и APK теперь включают git-провенанс в строку версии. Официальные релизные сборки с тега остаются с чистой версией (например, 0.6.2); промежуточные сборки с main или feature-ветки отображаются как 0.6.2-5-gabc1234 (или -dirty) в Magisk/KSU-менеджере и настройках Android — по логам сразу видно, какой именно коммит у пользователя."
+            }
+          ]
+        },
+        {
+          "type": "fixed",
+          "items": [
+            {
+              "en": "Target apps (Ozon, Home Assistant, Megafon, Chrome, etc.) no longer hang on infinite load when vpnhide-zygisk is installed. Our recv/recvmsg hooks used to run the netlink-dump filter on every socket regardless of type — on TCP/UDP/Unix the first bytes are arbitrary user data (TLS ciphertext, HTTP body) and occasionally matched RTM_NEWLINK/RTM_NEWADDR by chance, causing the filter to mangle the buffer in-place and corrupt the TLS stream. Gated both hooks on AF_NETLINK so non-netlink traffic passes through untouched.",
+              "ru": "Целевые приложения (Ozon, Home Assistant, Мегафон, Chrome и т. д.) больше не зависают на бесконечной загрузке при установленном vpnhide-zygisk. Хуки recv/recvmsg запускали netlink-фильтр на каждом сокете независимо от типа — на TCP/UDP/Unix первые байты это произвольные данные (TLS-шифротекст, HTTP-тело), и иногда случайно совпадали с RTM_NEWLINK/RTM_NEWADDR, после чего фильтр портил буфер in-place и ломал TLS-поток. Обе хуки теперь работают только на AF_NETLINK-сокетах, не-netlink трафик проходит без изменений."
+            },
+            {
+              "en": "Target apps no longer fail Java-level hooks on cold boot. service.sh in the kmod and zygisk modules used to resolve package names to UIDs as soon as pm list packages started responding — but PackageManager responds early with only the system-package snapshot, so user-installed targets (including the vpnhide app itself) got resolved to empty. /data/system/vpnhide_uids.txt was written with at most one UID, the LSPosed hook cached that empty set on its first writeToParcel call, and the Java-level filtering silently no-opped until the next lucky boot. Now service.sh waits until the vpnhide package itself is visible in pm list packages -U, so the full user-package index is ready before resolving.",
+              "ru": "Целевые приложения больше не проваливают Java-хуки после холодной загрузки. service.sh в модулях kmod и zygisk резолвил имена пакетов в UID как только pm list packages начинал отвечать — но PackageManager отвечает сначала только списком системных пакетов, поэтому user-пакеты (включая сам vpnhide) резолвились в пустоту. /data/system/vpnhide_uids.txt писался с максимум одним UID, LSPosed-хук кэшировал этот пустой набор при первом вызове writeToParcel, и Java-фильтрация тихо не работала до следующей удачной загрузки. Теперь service.sh ждёт, пока сам пакет vpnhide не появится в pm list packages -U — значит полный индекс user-пакетов готов до резолва."
+            },
+            {
+              "en": "Ozon and other apps with root-detection scanning /proc/self/fd no longer hang when vpnhide-zygisk is installed. The module's zygote-side on_load was leaking the module-dir fd, which every forked app process inherited — root-tamper scans detected a descriptor pointing inside /data/adb/modules/ and refused to continue. The fd is now explicitly closed before any app fork.",
+              "ru": "Ozon и другие приложения, сканирующие /proc/self/fd на признаки root, больше не зависают при установленном vpnhide-zygisk. Модуль утекал fd на /data/adb/modules/ в зиготу, и каждое форкнутое приложение наследовало его — антирут-проверки детектили descriptor внутри /data/adb/ и отказывались запускаться. Теперь fd явно закрывается до первого форка."
+            }
+          ]
+        }
+      ]
+    },
     {
       "version": "0.6.1",
       "sections": [
@@ -31,10 +52,6 @@
             {
               "en": "Magisk versions before v28 failed to install vpnhide-ports and vpnhide-kmod with an unpack error — restored the META-INF/com/google/android/{update-binary,updater-script} entries the older managers expect.",
               "ru": "Magisk до v28 не мог установить vpnhide-ports и vpnhide-kmod из-за ошибки распаковки — вернул файлы META-INF/com/google/android/{update-binary,updater-script}, которые требуются старыми менеджерами."
-            },
-            {
-              "en": "Ozon and other apps with root-detection scanning /proc/self/fd no longer hang when vpnhide-zygisk is installed. The module's zygote-side on_load was leaking the module-dir fd, which every forked app process inherited — root-tamper scans detected a descriptor pointing inside /data/adb/modules/ and refused to continue. The fd is now explicitly closed before any app fork.",
-              "ru": "Ozon и другие приложения, сканирующие /proc/self/fd на признаки root, больше не зависают при установленном vpnhide-zygisk. Модуль утекал fd на /data/adb/modules/ в зиготу, и каждое форкнутое приложение наследовало его — антирут-проверки детектили descriptor внутри /data/adb/ и отказывались запускаться. Теперь fd явно закрывается до первого форка."
             }
           ]
         },
