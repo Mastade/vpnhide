@@ -36,6 +36,7 @@ internal object LogcatRecorder {
     sealed interface State {
         data class Stopped(
             val lastFile: File?,
+            val lastDurationMs: Long = 0L,
         ) : State
 
         data class Recording(
@@ -139,7 +140,8 @@ internal object LogcatRecorder {
             // small grace period for the piping coroutine to finish writing
             delay(120)
         }
-        _state.value = State.Stopped(current.file)
+        val duration = (System.currentTimeMillis() - current.startMs).coerceAtLeast(0L)
+        _state.value = State.Stopped(current.file, duration)
         return current.file
     }
 }

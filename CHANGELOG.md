@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Save button next to Share for full-system logcat recordings — writes the capture via the Storage Access Framework to a user-picked location (previously only Share was available, which didn't always persist the file when sharing to a file manager).
+
 ## v0.6.1
 
 ### Added

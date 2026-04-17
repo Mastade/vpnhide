@@ -1,6 +1,16 @@
 {
   "unreleased": {
-    "sections": []
+    "sections": [
+      {
+        "type": "added",
+        "items": [
+          {
+            "en": "Save button next to Share for full-system logcat recordings — writes the capture via the Storage Access Framework to a user-picked location (previously only Share was available, which didn't always persist the file when sharing to a file manager).",
+            "ru": "Кнопка «Сохранить» рядом с «Поделиться» для записи полного системного logcat — сохраняет файл через Storage Access Framework в выбранное место (раньше была только «Поделиться», и через диалог «Сохранить в файлы» файл не всегда сохранялся)."
+          }
+        ]
+      }
+    ]
   },
   "history": [
     {

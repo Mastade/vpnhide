@@ -123,6 +123,7 @@
     <string name="logcat_btn_stop">Остановить и сохранить</string>
     <string name="logcat_btn_share_last">Последний (%1$s)</string>
     <string name="logcat_recording_status">● Запись · %1$s · %2$s</string>
+    <string name="logcat_last_recording">Последняя запись · %1$s · %2$s</string>
     <string name="summary_running">Выполняется&#8230;</string>
     <string name="summary_format">%1$d/%2$d пройдено</string>
     <string name="btn_run_all">Запустить все проверки</string>

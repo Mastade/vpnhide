@@ -70,6 +70,7 @@
     <string name="logcat_btn_stop">Stop and save</string>
     <string name="logcat_btn_share_last">Share last (%1$s)</string>
     <string name="logcat_recording_status">● Recording · %1$s · %2$s</string>
+    <string name="logcat_last_recording">Last recording · %1$s · %2$s</string>
     <string name="badge_pass">PASS</string>
     <string name="badge_fail">FAIL</string>
     <string name="badge_info">INFO</string>

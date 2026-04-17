@@ -303,6 +303,18 @@ private fun LogcatRecordCard() {
         }
     }
 
+    val saveLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("text/plain"),
+        ) { uri: Uri? ->
+            val src = (state as? LogcatRecorder.State.Stopped)?.lastFile ?: return@rememberLauncherForActivityResult
+            if (uri != null) {
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    src.inputStream().use { it.copyTo(out) }
+                }
+            }
+        }
+
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -355,25 +367,35 @@ private fun LogcatRecordCard() {
 
                 is LogcatRecorder.State.Stopped -> {
                     val last = s.lastFile
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Button(
-                            onClick = {
-                                scope.launch { LogcatRecorder.start(context) }
-                            },
-                            modifier = Modifier.weight(1f),
+                    val hasLast = last != null && last.exists()
+                    if (hasLast) {
+                        Text(
+                            text =
+                                stringResource(
+                                    R.string.logcat_last_recording,
+                                    formatElapsed(s.lastDurationMs / 1000),
+                                    formatSize(last!!.length()),
+                                ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Icon(
-                                Icons.Default.FiberManualRecord,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(stringResource(R.string.logcat_btn_start))
-                        }
-                        if (last != null && last.exists()) {
+                            OutlinedButton(
+                                onClick = { saveLauncher.launch(last.name) },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(
+                                    Icons.Default.Save,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(stringResource(R.string.btn_save))
+                            }
                             OutlinedButton(
                                 onClick = {
                                     val uri =
@@ -398,15 +420,24 @@ private fun LogcatRecordCard() {
                                     modifier = Modifier.size(18.dp),
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text =
-                                        stringResource(
-                                            R.string.logcat_btn_share_last,
-                                            formatSize(last.length()),
-                                        ),
-                                )
+                                Text(stringResource(R.string.btn_share_debug))
                             }
                         }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Button(
+                        onClick = {
+                            scope.launch { LogcatRecorder.start(context) }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(
+                            Icons.Default.FiberManualRecord,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.logcat_btn_start))
                     }
                 }
             }
