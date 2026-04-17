@@ -201,6 +201,10 @@ fun DiagnosticsScreen(
 
         Spacer(Modifier.height(16.dp))
 
+        DebugLoggingCard()
+
+        Spacer(Modifier.height(16.dp))
+
         LogcatRecordCard()
 
         Spacer(Modifier.height(16.dp))
@@ -286,6 +290,48 @@ fun DiagnosticsScreen(
 }
 
 @Composable
+private fun DebugLoggingCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var enabled by remember { mutableStateOf(VpnHideLog.enabled) }
+
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.diag_debug_logging_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.diag_debug_logging_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(
+                checked = enabled,
+                onCheckedChange = { newValue ->
+                    enabled = newValue
+                    scope.launch(Dispatchers.IO) {
+                        setDebugLoggingEnabled(context, newValue)
+                    }
+                },
+            )
+        }
+    }
+}
+
+@Composable
 private fun LogcatRecordCard() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -351,7 +397,7 @@ private fun LogcatRecordCard() {
                     Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = {
-                            scope.launch { LogcatRecorder.stop() }
+                            scope.launch { LogcatRecorder.stop(context) }
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -566,9 +612,9 @@ private fun runAllChecks(
     cm: ConnectivityManager,
     context: android.content.Context,
 ): CheckResults {
-    Log.i(TAG, "========================================")
-    Log.i(TAG, "=== VPNHide — starting all checks ===")
-    Log.i(TAG, "========================================")
+    VpnHideLog.i(TAG, "========================================")
+    VpnHideLog.i(TAG, "=== VPNHide — starting all checks ===")
+    VpnHideLog.i(TAG, "========================================")
 
     val res = context.resources
 
@@ -610,7 +656,7 @@ private fun runAllChecks(
     val all = native + java
     val scored = all.filter { it.passed != null }
     val passed = scored.count { it.passed == true }
-    Log.i(TAG, "=== SUMMARY: $passed/${scored.size} passed ===")
+    VpnHideLog.i(TAG, "=== SUMMARY: $passed/${scored.size} passed ===")
 
     return CheckResults(native = native, java = java)
 }
@@ -627,7 +673,7 @@ private fun nativeCheck(
                 raw.startsWith("NETWORK_BLOCKED:") -> null
                 else -> false
             }
-        Log.i(TAG, "[$name] $raw")
+        VpnHideLog.i(TAG, "[$name] $raw")
         CheckResult(name, passed, raw)
     } catch (e: Exception) {
         val detail = "FAIL: exception: ${e.message}"
@@ -840,6 +886,14 @@ private suspend fun exportDebugZip(
     selfNeedsRestart: Boolean,
 ): File? =
     withContext(Dispatchers.IO) {
+        // Force-enable app/lsposed/zygisk debug logging while the capture
+        // runs so the dump contains VpnHide-tagged lines even when the
+        // user's persistent toggle is OFF (the default). We restore to
+        // whatever the SharedPreferences say at the end — if the user
+        // happens to flip the UI toggle mid-capture, we honor their
+        // final choice instead of blindly rolling back.
+        val loggingWasForced = !VpnHideLog.enabled
+        if (loggingWasForced) applyDebugLoggingRuntime(true)
         try {
             // 1. Enable kmod debug logging
             suExec("echo 1 > /proc/vpnhide_debug 2>/dev/null")
@@ -1083,5 +1137,10 @@ private suspend fun exportDebugZip(
         } catch (e: Exception) {
             Log.e(TAG, "Debug export failed", e)
             null
+        } finally {
+            if (loggingWasForced) {
+                val target = isEnabledInPrefs(context)
+                if (VpnHideLog.enabled != target) applyDebugLoggingRuntime(target)
+            }
         }
     }
