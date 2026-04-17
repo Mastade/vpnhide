@@ -155,17 +155,28 @@ private fun MainScreen() {
                             }
                             Box {
                                 val anyFilterActive = showSystem || showRussianOnly
-                                IconButton(onClick = { showFilterMenu = true }) {
-                                    Icon(
-                                        Icons.Default.FilterList,
-                                        contentDescription = null,
-                                        tint =
-                                            if (anyFilterActive) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.onPrimaryContainer
-                                            },
-                                    )
+                                // Active-filter indicator: the old `tint = primary`
+                                // did not contrast reliably against the topbar's
+                                // `primaryContainer` on Material You palettes where
+                                // primary and primaryContainer end up close in tone.
+                                // FilledIconButton paints itself with `primary` /
+                                // `onPrimary`, a pair M3 guarantees to contrast,
+                                // so the indicator reads on any dynamic theme.
+                                if (anyFilterActive) {
+                                    FilledIconButton(onClick = { showFilterMenu = true }) {
+                                        Icon(
+                                            Icons.Default.FilterList,
+                                            contentDescription = null,
+                                        )
+                                    }
+                                } else {
+                                    IconButton(onClick = { showFilterMenu = true }) {
+                                        Icon(
+                                            Icons.Default.FilterList,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
+                                    }
                                 }
                                 DropdownMenu(
                                     expanded = showFilterMenu,
