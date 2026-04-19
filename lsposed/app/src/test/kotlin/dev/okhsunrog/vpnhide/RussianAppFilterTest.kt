@@ -56,6 +56,40 @@ class RussianAppFilterTest {
         assertTrue(isRussianApp("com.kontur.extern", "Kontur"))
     }
 
+    @Test
+    fun `batch 2026-04 Russian apps are matched`() {
+        // retailers / marketplaces / food
+        assertTrue(isRussianApp("com.allgoritm.youla", "Youla"))
+        assertTrue(isRussianApp("com.deliveryclub", "Delivery Club"))
+        assertTrue(isRussianApp("com.edadeal.android", "Edadeal"))
+        assertTrue(isRussianApp("com.kazanexpress.ke_app", "KazanExpress"))
+        assertTrue(isRussianApp("com.zolla.app", "Zolla"))
+        assertTrue(isRussianApp("www.metro.com", "Metro"))
+        // couriers / logistics
+        assertTrue(isRussianApp("com.logistic.sdek", "SDEK"))
+        assertTrue(isRussianApp("com.octopod.russianpost.client.android", "Russian Post"))
+        assertTrue(isRussianApp("com.taxsee.taxsee", "Taxsee"))
+        // telecom / smart home (prefix catches both ER-Telecom apps)
+        assertTrue(isRussianApp("com.ertelecom.agent", "Dom.ru"))
+        assertTrue(isRussianApp("com.ertelecom.smarthome", "Dom.ru Smart Home"))
+        // multi-app aggregators (prefix catches all platfomni pharmacies)
+        assertTrue(isRussianApp("com.platfomni.gorzdrav", "Gorzdrav"))
+        assertTrue(isRussianApp("com.platfomni.vita", "Vita"))
+        assertTrue(isRussianApp("com.platfomni.asna", "ASNA"))
+        // corporate / government-adjacent
+        assertTrue(isRussianApp("com.consultantplus.hs", "ConsultantPlus"))
+        assertTrue(isRussianApp("com.greenatom.atomspace", "AtomSpace"))
+        // food chains
+        assertTrue(isRussianApp("com.apegroup.mcdonaldsrussia", "McDonald's Russia"))
+        assertTrue(isRussianApp("com.FoodSoul.KurskRollStreet", "Kursk Roll Street"))
+        assertTrue(isRussianApp("com.rubeacon.tashirpizza", "Tashir Pizza"))
+        // misc one-offs
+        assertTrue(isRussianApp("club.chizhik", "Chizhik"))
+        assertTrue(isRussianApp("one.belousov.wordgame", "Word Game"))
+        assertTrue(isRussianApp("starter.pokemoon.client", "Pokemoon"))
+        assertTrue(isRussianApp("vesnasoft.teleform", "Teleform"))
+    }
+
     // ── Non-Russian apps (must NOT match) ──
 
     @Test
