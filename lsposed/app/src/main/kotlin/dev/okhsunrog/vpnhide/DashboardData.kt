@@ -593,13 +593,13 @@ internal fun loadDashboardState(
     val appVersion = BuildConfig.VERSION_NAME
     // Version mismatches are warnings — modules keep working, user just needs to
     // update the lagging side. Full coverage is not affected by a patch-level gap.
-    if (kmod is ModuleState.Installed && kmod.version != null && normalizeVersion(kmod.version) != normalizeVersion(appVersion)) {
+    if (kmod is ModuleState.Installed && kmod.version != null && versionsMismatch(kmod.version, appVersion)) {
         warn(buildModuleVersionIssue(NativeModuleKind.Kmod, kmod.version, appVersion))
     }
-    if (zygisk is ModuleState.Installed && zygisk.version != null && normalizeVersion(zygisk.version) != normalizeVersion(appVersion)) {
+    if (zygisk is ModuleState.Installed && zygisk.version != null && versionsMismatch(zygisk.version, appVersion)) {
         warn(buildModuleVersionIssue(NativeModuleKind.Zygisk, zygisk.version, appVersion))
     }
-    if (ports is ModuleState.Installed && ports.version != null && normalizeVersion(ports.version) != normalizeVersion(appVersion)) {
+    if (ports is ModuleState.Installed && ports.version != null && versionsMismatch(ports.version, appVersion)) {
         warn(buildModuleVersionIssue(NativeModuleKind.Ports, ports.version, appVersion))
     }
     val totalTargets = lsposedTargetCount + kmodTargetCount + zygiskTargetCount
@@ -611,7 +611,7 @@ internal fun loadDashboardState(
     }
     if (lsposed is LsposedState.Active) {
         val runningVersion = lsposed.version
-        if (runningVersion != null && runningVersion != appVersion) {
+        if (versionsMismatch(runningVersion, appVersion)) {
             VpnHideLog.w(TAG, "version mismatch: running=$runningVersion app=$appVersion")
             warn(res.getString(R.string.dashboard_issue_version_mismatch, runningVersion, appVersion))
         }

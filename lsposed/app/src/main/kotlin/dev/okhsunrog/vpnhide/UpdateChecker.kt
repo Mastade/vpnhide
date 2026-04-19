@@ -38,6 +38,25 @@ data class BilingualItem(
 
 internal fun normalizeVersion(version: String): String = version.trim().removePrefix("v")
 
+private val GIT_DESCRIBE_DEV_SUFFIX = Regex("""-\d+-g[0-9a-f]+$""")
+
+// Strip the `-<commits>-g<short-sha>` suffix that `git describe --tags`
+// appends when HEAD isn't on a tag, so a dev APK built on top of release
+// 0.6.2 compares equal to module.prop version 0.6.2. Pre-release tags
+// (-rc1, -beta, -alpha.2) are preserved.
+internal fun baseVersion(version: String): String = normalizeVersion(version).replace(GIT_DESCRIBE_DEV_SUFFIX, "")
+
+// True when a module's version is meaningfully different from the app's,
+// i.e. both have real base versions and the bases disagree. Dev APKs on
+// top of the same release do not count as mismatch.
+internal fun versionsMismatch(
+    moduleVersion: String?,
+    appVersion: String,
+): Boolean {
+    if (moduleVersion == null) return false
+    return baseVersion(moduleVersion) != baseVersion(appVersion)
+}
+
 internal fun compareSemver(
     left: String,
     right: String,
