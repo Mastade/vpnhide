@@ -155,9 +155,13 @@ fn check_ioctl_siocgifflags() -> CheckOutput {
 
         if ret < 0 {
             if err == libc::ENODEV {
-                CheckOutput::pass("ioctl(tun0, SIOCGIFFLAGS) returned ENODEV — interface not visible")
+                CheckOutput::pass(
+                    "ioctl(tun0, SIOCGIFFLAGS) returned ENODEV — interface not visible",
+                )
             } else if err == libc::ENXIO {
-                CheckOutput::pass("ioctl(tun0, SIOCGIFFLAGS) returned ENXIO — interface not visible")
+                CheckOutput::pass(
+                    "ioctl(tun0, SIOCGIFFLAGS) returned ENXIO — interface not visible",
+                )
             } else {
                 CheckOutput::fail(format!("ioctl returned error {err} ({})", last_os_error()))
             }
@@ -306,10 +310,7 @@ fn check_proc_file(path: &str) -> CheckOutput {
                 CheckOutput::pass(format!("{total} lines in {path}, no VPN entries"))
             } else {
                 let details: String = vpn_lines.iter().map(|l| format!("\n  {l}")).collect();
-                CheckOutput::fail(format!(
-                    "{} VPN lines in {path}:{details}",
-                    vpn_lines.len()
-                ))
+                CheckOutput::fail(format!("{} VPN lines in {path}:{details}", vpn_lines.len()))
             }
         }
     }
