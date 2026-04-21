@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.7.1
+
+### Added
+- Expanded Russian app detection: Anixart, ePN Cashback, TNT Premier, Swoo (Кошелёк), Макси, Ростелеком Личный кабинет, Проверка чеков ФНС
+
+### Changed
+- Reduced APK size by ~93% (47 MB → 3.37 MB) by enabling R8 minification, resource shrinking, and replacing the com.google.android.material dependency with AndroidX SplashScreen; the splash screen now holds through startup until the Dashboard is ready, removing transient loading spinners on cold launch
+- Show profile names (Work, Second Space, ...) next to apps installed in other user profiles, instead of raw user IDs
+
+### Fixed
+- Kmod install recommendation no longer falsely pushes users to Zygisk on custom kernels whose `uname -r` lacks the GKI KMI tag (e.g. `android12`, `android13`). The heuristic now matches only the parsed KMI — not the phone's Android OS release, which is an unrelated label — and falls back on kernel series when the KMI is missing: 6.1 / 6.6 / 6.12 each ship a single KMI variant and are still unambiguous; 5.10 and 5.15 each have two candidates, both of which the app now surfaces (primary + alternative), with a dedicated banner when the installed variant fails to load so the user knows to try the other. An active kmod — `/proc/vpnhide_targets` present — also overrides any remaining heuristic-driven warning.
+- Polish multi-profile app list: the Show system filter now classifies apps installed only in a secondary profile correctly, and the user-ID suffix no longer appears on every row for users without a secondary profile
+
 ## v0.7.0
 
 ### Added
