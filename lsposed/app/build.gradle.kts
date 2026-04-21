@@ -12,6 +12,13 @@ plugins {
 
 cargo {
     packageDirectory = layout.projectDirectory.dir("../native")
+    // Don't bundle the Rust lib into Android unit-test resources. Unit tests
+    // never load the native lib, and bundling drags in a Linux x64 cargo
+    // build that fails because the source uses Android-shaped ioctl request
+    // types incompatible with glibc.
+    builds.withType(gobley.gradle.cargo.dsl.CargoJvmBuild::class.java).configureEach {
+        androidUnitTest.set(false)
+    }
 }
 
 uniffi {

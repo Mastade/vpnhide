@@ -56,10 +56,6 @@ fn is_vpn_iface(name: &str) -> bool {
     matches_vpn(name.as_bytes())
 }
 
-fn logi(msg: &str) {
-    log::info!("{msg}");
-}
-
 fn is_selinux_denial(e: &std::io::Error) -> bool {
     e.kind() == ErrorKind::PermissionDenied
 }
@@ -137,7 +133,6 @@ const RTA_OIF: u16 = 4;
 
 #[uniffi::export]
 fn check_ioctl_siocgifflags() -> CheckOutput {
-    logi("=== CHECK: ioctl SIOCGIFFLAGS on tun0 ===");
     unsafe {
         let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
         if fd < 0 {
@@ -179,7 +174,6 @@ fn check_ioctl_siocgifflags() -> CheckOutput {
 
 #[uniffi::export]
 fn check_ioctl_siocgifmtu() -> CheckOutput {
-    logi("=== CHECK: ioctl SIOCGIFMTU on tun0 ===");
     unsafe {
         let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
         if fd < 0 {
@@ -215,7 +209,6 @@ fn check_ioctl_siocgifmtu() -> CheckOutput {
 
 #[uniffi::export]
 fn check_ioctl_siocgifconf() -> CheckOutput {
-    logi("=== CHECK: ioctl SIOCGIFCONF enumeration ===");
     unsafe {
         let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
         if fd < 0 {
@@ -247,7 +240,6 @@ fn check_ioctl_siocgifconf() -> CheckOutput {
         let mut vpn = Vec::new();
         for req in reqs {
             let name = cstr_to_str(req.ifr_name.as_ptr());
-            logi(&format!("  SIOCGIFCONF: interface '{name}'"));
             if is_vpn_iface(&name) {
                 vpn.push(name.clone());
             }
@@ -260,7 +252,6 @@ fn check_ioctl_siocgifconf() -> CheckOutput {
 
 #[uniffi::export]
 fn check_getifaddrs() -> CheckOutput {
-    logi("=== CHECK: getifaddrs() enumeration ===");
     unsafe {
         let mut addrs: *mut libc::ifaddrs = std::ptr::null_mut();
         if libc::getifaddrs(&mut addrs) != 0 {
@@ -275,15 +266,6 @@ fn check_getifaddrs() -> CheckOutput {
             if !entry.ifa_name.is_null() {
                 let name = cstr_to_str(entry.ifa_name);
                 if !all.contains(&name) {
-                    let family = if entry.ifa_addr.is_null() {
-                        -1
-                    } else {
-                        i32::from((*entry.ifa_addr).sa_family)
-                    };
-                    logi(&format!(
-                        "  getifaddrs: interface '{name}' (family={family}, flags=0x{:x})",
-                        entry.ifa_flags
-                    ));
                     all.push(name.clone());
                 }
                 if is_vpn_iface(&name) && !vpn.contains(&name) {
@@ -299,7 +281,6 @@ fn check_getifaddrs() -> CheckOutput {
 }
 
 fn check_proc_file(path: &str) -> CheckOutput {
-    logi(&format!("=== CHECK: {path} (native read) ==="));
     match std::fs::read_to_string(path) {
         Err(e) => {
             if is_selinux_denial(&e) {
@@ -317,7 +298,6 @@ fn check_proc_file(path: &str) -> CheckOutput {
                     continue;
                 }
                 total += 1;
-                logi(&format!("  {path} line: {}", &line[..line.len().min(120)]));
                 if VPN_PREFIXES.iter().any(|p| line.contains(p)) {
                     vpn_lines.push(line[..line.len().min(80)].to_string());
                 }
@@ -350,6 +330,12 @@ unsafe fn netlink_recv(fd: i32, buf: &mut [u8]) -> isize {
     }
 }
 
+/// Open a bound NETLINK_ROUTE socket.
+///
+/// `Err` is short-circuit control flow: callers `return` it as the probe
+/// outcome verbatim. The wrapped `CheckOutput` may carry any status —
+/// SELinux denials map to `Pass` (the kernel hid the interface, exactly
+/// what we want), real failures map to `Fail`.
 fn open_netlink() -> Result<i32, CheckOutput> {
     unsafe {
         let fd = libc::socket(libc::AF_NETLINK, libc::SOCK_RAW, libc::NETLINK_ROUTE);
@@ -433,7 +419,6 @@ unsafe fn for_each_rtattr(
 
 #[uniffi::export]
 fn check_netlink_getlink() -> CheckOutput {
-    logi("=== CHECK: netlink RTM_GETLINK dump ===");
     let fd = match open_netlink() {
         Ok(fd) => fd,
         Err(out) => return out,
@@ -485,7 +470,6 @@ fn check_netlink_getlink() -> CheckOutput {
                         if rta.rta_type == IFLA_IFNAME {
                             let name =
                                 cstr_to_str(b.as_ptr().add(rta_off + 4) as *const libc::c_char);
-                            logi(&format!("  netlink RTM_NEWLINK: interface '{name}'"));
                             if is_vpn_iface(&name) {
                                 vpn.push(name.clone());
                             }
@@ -512,7 +496,6 @@ fn check_netlink_getlink() -> CheckOutput {
 /// Temporary check to verify the recvfrom hook works.
 #[uniffi::export]
 fn check_netlink_getlink_recv() -> CheckOutput {
-    logi("=== CHECK: netlink RTM_GETLINK via recv ===");
     let fd = match open_netlink() {
         Ok(fd) => fd,
         Err(out) => return out,
@@ -588,7 +571,6 @@ fn check_netlink_getlink_recv() -> CheckOutput {
 
 #[uniffi::export]
 fn check_netlink_getroute() -> CheckOutput {
-    logi("=== CHECK: netlink RTM_GETROUTE dump ===");
     let fd = match open_netlink() {
         Ok(fd) => fd,
         Err(out) => return out,
@@ -647,7 +629,6 @@ fn check_netlink_getroute() -> CheckOutput {
                             if !ptr.is_null() {
                                 let name = cstr_to_str(ptr);
                                 if is_vpn_iface(&name) {
-                                    logi(&format!("  RTM_GETROUTE: VPN route via '{name}'"));
                                     vpn.push(name);
                                 }
                             }
@@ -671,7 +652,6 @@ fn check_netlink_getroute() -> CheckOutput {
 
 #[uniffi::export]
 fn check_sys_class_net() -> CheckOutput {
-    logi("=== CHECK: /sys/class/net/ directory ===");
     match std::fs::read_dir("/sys/class/net") {
         Err(e) => {
             if is_selinux_denial(&e) {
@@ -685,7 +665,6 @@ fn check_sys_class_net() -> CheckOutput {
             let mut vpn = Vec::new();
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                logi(&format!("  /sys/class/net: '{name}'"));
                 if is_vpn_iface(&name) {
                     vpn.push(name.clone());
                 }

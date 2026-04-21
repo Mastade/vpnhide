@@ -711,7 +711,7 @@ private fun nativeCheck(
         VpnHideLog.i(TAG, "[$name] ${out.status}: ${out.detail}")
         CheckResult(name, passed, out.detail)
     } catch (e: Exception) {
-        val detail = "exception: ${e.message}"
+        val detail = e.message ?: e.javaClass.simpleName
         Log.e(TAG, "[$name] $detail", e)
         CheckResult(name, false, detail)
     }

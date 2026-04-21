@@ -633,7 +633,6 @@ name = "vpnhide_checks"
 version = "0.7.1"
 dependencies = [
  "libc",
- "log",
  "uniffi",
 ]
 

@@ -7,12 +7,11 @@ license = "MIT"
 
 [lib]
 name = "vpnhide_checks"
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 uniffi = "0.29"
 libc = "0.2"
-log = "0.4"
 
 [profile.release]
 opt-level = "z"

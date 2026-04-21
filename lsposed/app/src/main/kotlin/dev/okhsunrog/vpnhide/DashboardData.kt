@@ -1209,8 +1209,11 @@ private fun runNativeProtectionCheck(): NativeResult {
         // paint a scary red when the real issue is the app having no network
         // permission; a dedicated banner covers that case separately.
         passed == 0 && failed == 0 -> NativeResult.Ok
+
         failed == 0 -> NativeResult.Ok
+
         passed > 0 -> NativeResult.Fail(passed, failed)
+
         else -> NativeResult.Fail(0, failed)
     }
 }
