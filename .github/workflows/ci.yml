@@ -80,7 +80,7 @@ jobs:
       - name: Add Linux x64 Rust target
         run: rustup target add x86_64-unknown-linux-gnu
       - name: Android lint
-        run: cd lsposed && ./gradlew --no-daemon :app:lint
+        run: cd lsposed && ./gradlew --no-daemon --stacktrace :app:lint
       - name: Kotlin unit tests
         run: cd lsposed && ./gradlew --no-daemon :app:testDebugUnitTest
 
@@ -214,7 +214,7 @@ jobs:
 
       - name: Build APK
         run: |
-          cd "$GITHUB_WORKSPACE/lsposed" && ./gradlew --no-daemon assembleRelease
+          cd "$GITHUB_WORKSPACE/lsposed" && ./gradlew --no-daemon --stacktrace assembleRelease
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/vpnhide.apk"
 
       - name: Upload artifact
