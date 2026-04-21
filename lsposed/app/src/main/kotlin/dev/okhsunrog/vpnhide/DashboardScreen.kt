@@ -231,6 +231,7 @@ private fun ModuleCard(
                     KmodBrokenReason.UnsupportedKernel -> R.string.dashboard_kmod_broken_unsupported_kernel
                     KmodBrokenReason.MissingKprobes -> R.string.dashboard_kmod_broken_no_kprobes
                     KmodBrokenReason.UnknownVariantInactive -> R.string.dashboard_kmod_broken_unknown_variant
+                    KmodBrokenReason.AmbiguousLoadFailed -> R.string.dashboard_kmod_broken_ambiguous
                     null -> null
                 }
             ModuleCardShell(
@@ -404,18 +405,31 @@ private fun NativeInstallRecommendationCard(recommendation: NativeInstallRecomme
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(8.dp))
+            val alternative = recommendation.alternativeArtifact
             Text(
                 text =
-                    if (recommendation.preferKmod) {
-                        stringResource(
-                            R.string.dashboard_install_recommendation_kmod,
-                            recommendation.recommendedArtifact,
-                        )
-                    } else {
-                        stringResource(
-                            R.string.dashboard_install_recommendation_zygisk,
-                            recommendation.recommendedArtifact,
-                        )
+                    when {
+                        !recommendation.preferKmod -> {
+                            stringResource(
+                                R.string.dashboard_install_recommendation_zygisk,
+                                recommendation.recommendedArtifact,
+                            )
+                        }
+
+                        recommendation.variantAmbiguous && alternative != null -> {
+                            stringResource(
+                                R.string.dashboard_install_recommendation_kmod_ambiguous,
+                                recommendation.recommendedArtifact,
+                                alternative,
+                            )
+                        }
+
+                        else -> {
+                            stringResource(
+                                R.string.dashboard_install_recommendation_kmod,
+                                recommendation.recommendedArtifact,
+                            )
+                        }
                     },
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
