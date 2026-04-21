@@ -74,6 +74,11 @@ jobs:
       # Kotlin
       - name: ktlint
         run: ktlint "lsposed/**/*.kt"
+      # Gobley's cargo plugin enumerates Kotlin targets at gradle configure
+      # time and queries rustup for each, including the JVM host target.
+      # Without this target installed gradle dies with a NullPointerException.
+      - name: Add Linux x64 Rust target
+        run: rustup target add x86_64-unknown-linux-gnu
       - name: Android lint
         run: cd lsposed && ./gradlew --no-daemon :app:lint
       - name: Kotlin unit tests
@@ -200,6 +205,12 @@ jobs:
           keyAlias=$KEY_ALIAS
           storeFile=$KEYSTORE_PATH
           EOF
+
+      # Gobley's cargo plugin enumerates Kotlin targets at gradle configure
+      # time and queries rustup for each, including the JVM host target.
+      # Without this target installed gradle dies with a NullPointerException.
+      - name: Add Linux x64 Rust target
+        run: rustup target add x86_64-unknown-linux-gnu
 
       - name: Build APK
         run: |

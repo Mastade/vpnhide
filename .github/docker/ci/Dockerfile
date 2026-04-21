@@ -50,7 +50,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
         sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path && \
-    rustup target add aarch64-linux-android && \
+    rustup target add aarch64-linux-android x86_64-unknown-linux-gnu && \
     rustup component add rustfmt clippy && \
     cargo install cargo-ndk --locked && \
     chmod -R a+w /usr/local/rustup /usr/local/cargo
