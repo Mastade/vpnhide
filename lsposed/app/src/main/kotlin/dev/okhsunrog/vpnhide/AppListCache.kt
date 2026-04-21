@@ -28,6 +28,23 @@ internal data class AppSummary(
 )
 
 /**
+ * Append the user-ID list to an app label so users can tell that
+ * Telegram-in-Second-Space and Telegram-in-main are the same target.
+ * Suppresses the suffix when the app is only in the current profile —
+ * otherwise every row in the list reads "Cromite (0)", "Chrome (0)",
+ * ... for users who don't even have a secondary profile.
+ */
+internal fun labelWithUsers(
+    label: String,
+    userIds: List<Int>,
+): String {
+    if (userIds.isEmpty()) return label
+    val currentUser = Process.myUid() / 100000
+    val onlyCurrent = userIds.size == 1 && userIds[0] == currentUser
+    return if (onlyCurrent) label else "$label (${userIds.joinToString(", ")})"
+}
+
+/**
  * App-scoped cache for the installed-app list. Loaded asynchronously
  * at startup; Protection screens subscribe to `apps` and render
  * instantly on tab switch.

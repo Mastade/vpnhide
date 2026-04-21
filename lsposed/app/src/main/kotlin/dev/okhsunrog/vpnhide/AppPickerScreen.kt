@@ -45,8 +45,6 @@ data class AppEntry(
     val lsposed: Boolean = false,
 ) {
     val anySelected get() = kmod || zygisk || lsposed
-    val labelWithUsers: String
-        get() = if (userIds.isEmpty()) label else "$label (${userIds.joinToString(", ")})"
 }
 
 /** Which installed modules are present (detected once at load). */
@@ -436,7 +434,7 @@ private fun AppRow(
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = app.labelWithUsers,
+                text = labelWithUsers(app.label, app.userIds),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )
