@@ -65,6 +65,7 @@ internal data class HidingEntry(
     val label: String,
     val icon: Drawable?,
     val isSystem: Boolean,
+    val userIds: List<Int> = emptyList(),
     val hidden: Boolean = false,
     val observer: Boolean = false,
 ) {
@@ -133,6 +134,7 @@ fun AppHidingScreen(
                         label = app.label,
                         icon = app.icon,
                         isSystem = app.isSystem,
+                        userIds = app.userIds,
                         hidden = finalHidden,
                         observer = finalObserver,
                     )
@@ -430,7 +432,7 @@ private fun HidingAppRow(
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = app.label,
+                text = labelWithUsers(app.label, app.userIds),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )

@@ -67,6 +67,7 @@ internal data class PortsEntry(
     val label: String,
     val icon: Drawable?,
     val isSystem: Boolean,
+    val userIds: List<Int> = emptyList(),
     val observer: Boolean = false,
 )
 
@@ -113,6 +114,7 @@ fun PortsHidingScreen(
                         label = app.label,
                         icon = app.icon,
                         isSystem = app.isSystem,
+                        userIds = app.userIds,
                         observer = app.packageName in t.portsObservers,
                     )
                 }
@@ -381,7 +383,7 @@ private fun PortsAppRow(
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = app.label,
+                text = labelWithUsers(app.label, app.userIds),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Medium,
             )
