@@ -681,18 +681,21 @@ internal fun loadDashboardState(
     //    all (non-GKI / unsupported combo) — we recommend zygisk instead so
     //    the user doesn't wait for the kmod to "just work".
     val recommendedKmi = kernelRecommendation?.recommendedGkiVariant
-    // Two cross-cutting gates on every heuristic-driven kmod warning:
+    // Two cross-cutting gates on kmod warnings:
     //   !kmodRaw.active — an active kmod (/proc/vpnhide_targets present)
-    //     is empirical proof the installation works, so a heuristic saying
-    //     otherwise is wrong.
-    //   kmodLoadStatus?.freshForCurrentBoot == true (on UnsupportedKernel /
-    //     AmbiguousLoadFailed) — only fire after post-fs-data has attempted
-    //     insmod this boot, so a freshly-installed-but-not-rebooted module
-    //     isn't prematurely flagged.
+    //     is empirical proof the installation works, so a heuristic
+    //     saying otherwise is wrong. Applied to every warning below.
+    //   kmodLoadStatus?.freshForCurrentBoot == true (AmbiguousLoadFailed
+    //     only) — that warning is specifically about "the module we
+    //     installed tried to insmod this boot and failed, pick the
+    //     other candidate", so it only makes sense once post-fs-data
+    //     has actually attempted a load. The other warnings are
+    //     deterministic from the variant stamp / kernel-series tables
+    //     and are valid even before the first post-install boot.
     // For an ambiguous recommendation (variantAmbiguous=true), either
-    // candidate is a valid install, so kmodVariantMismatch must check both
-    // recommendedGkiVariant AND alternativeGkiVariant before deciding it's
-    // a real mismatch.
+    // candidate is a valid install, so kmodVariantMismatch must check
+    // both recommendedGkiVariant AND alternativeGkiVariant before
+    // deciding it's a real mismatch.
     val kmodVariantMismatch =
         kmodRaw is ModuleState.Installed &&
             !kmodRaw.active &&
@@ -709,7 +712,6 @@ internal fun loadDashboardState(
     val kmodOnUnsupportedKernel =
         kmodRaw is ModuleState.Installed &&
             !kmodRaw.active &&
-            kmodLoadStatus?.freshForCurrentBoot == true &&
             kernelRecommendation != null &&
             !kernelRecommendation.preferKmod
     // User installed one of the two candidates for an ambiguous GKI series
