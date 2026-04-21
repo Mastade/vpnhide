@@ -7,6 +7,51 @@ use crate::generated::iface_lists::matches_vpn;
 
 uniffi::setup_scaffolding!();
 
+// ── Probe outcome types — crossing the FFI ───────────────────────────
+
+#[derive(uniffi::Enum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckStatus {
+    /// Probe ran and saw nothing VPN-shaped, or was legitimately blocked
+    /// (SELinux denial, ENODEV, etc.) — both outcomes confirm the VPN is
+    /// hidden from this surface.
+    Pass,
+    /// Probe surfaced VPN-shaped data the kmod / zygisk should have hidden.
+    Fail,
+    /// App has no network permission, so the probe couldn't run at all.
+    /// Reported separately from Pass/Fail so the UI can tell the user to
+    /// enable network access before trusting the results.
+    NetworkBlocked,
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CheckOutput {
+    pub status: CheckStatus,
+    pub detail: String,
+}
+
+impl CheckOutput {
+    fn pass(detail: impl Into<String>) -> Self {
+        Self {
+            status: CheckStatus::Pass,
+            detail: detail.into(),
+        }
+    }
+
+    fn fail(detail: impl Into<String>) -> Self {
+        Self {
+            status: CheckStatus::Fail,
+            detail: detail.into(),
+        }
+    }
+
+    fn network_blocked(detail: impl Into<String>) -> Self {
+        Self {
+            status: CheckStatus::NetworkBlocked,
+            detail: detail.into(),
+        }
+    }
+}
+
 fn is_vpn_iface(name: &str) -> bool {
     matches_vpn(name.as_bytes())
 }
@@ -42,15 +87,15 @@ fn join_list(v: &[String]) -> String {
     v.join(", ")
 }
 
-fn format_iface_result(all: &[String], vpn: &[String], context: &str) -> String {
+fn format_iface_result(all: &[String], vpn: &[String], context: &str) -> CheckOutput {
     if vpn.is_empty() {
-        format!("PASS: {context} [{list}], no VPN", list = join_list(all))
+        CheckOutput::pass(format!("{context} [{list}], no VPN", list = join_list(all)))
     } else {
-        format!(
-            "FAIL: VPN interfaces [{vpn}] in [{all}]",
+        CheckOutput::fail(format!(
+            "VPN interfaces [{vpn}] in [{all}]",
             vpn = join_list(vpn),
             all = join_list(all),
-        )
+        ))
     }
 }
 
@@ -91,16 +136,18 @@ const RTA_OIF: u16 = 4;
 // ── check implementations ────────────────────────────────────────────
 
 #[uniffi::export]
-fn check_ioctl_siocgifflags() -> String {
+fn check_ioctl_siocgifflags() -> CheckOutput {
     logi("=== CHECK: ioctl SIOCGIFFLAGS on tun0 ===");
     unsafe {
         let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
         if fd < 0 {
             let err = last_os_errno();
             if err == libc::ECONNREFUSED {
-                return "NETWORK_BLOCKED: socket() returned ECONNREFUSED — network access disabled for this app".into();
+                return CheckOutput::network_blocked(
+                    "socket() returned ECONNREFUSED — network access disabled for this app",
+                );
             }
-            return format!("FAIL: cannot create socket: {}", last_os_error());
+            return CheckOutput::fail(format!("cannot create socket: {}", last_os_error()));
         }
 
         let mut ifr: libc::ifreq = std::mem::zeroed();
@@ -113,34 +160,36 @@ fn check_ioctl_siocgifflags() -> String {
 
         if ret < 0 {
             if err == libc::ENODEV {
-                "PASS: ioctl(tun0, SIOCGIFFLAGS) returned ENODEV — interface not visible".into()
+                CheckOutput::pass("ioctl(tun0, SIOCGIFFLAGS) returned ENODEV — interface not visible")
             } else if err == libc::ENXIO {
-                "PASS: ioctl(tun0, SIOCGIFFLAGS) returned ENXIO — interface not visible".into()
+                CheckOutput::pass("ioctl(tun0, SIOCGIFFLAGS) returned ENXIO — interface not visible")
             } else {
-                format!("FAIL: ioctl returned error {err} ({})", last_os_error())
+                CheckOutput::fail(format!("ioctl returned error {err} ({})", last_os_error()))
             }
         } else {
             let flags = ifr.ifr_ifru.ifru_flags as u32;
-            format!(
-                "FAIL: tun0 is visible! flags=0x{flags:x} (IFF_UP={}, IFF_RUNNING={})",
+            CheckOutput::fail(format!(
+                "tun0 is visible! flags=0x{flags:x} (IFF_UP={}, IFF_RUNNING={})",
                 u8::from(flags & libc::IFF_UP as u32 != 0),
                 u8::from(flags & libc::IFF_RUNNING as u32 != 0),
-            )
+            ))
         }
     }
 }
 
 #[uniffi::export]
-fn check_ioctl_siocgifmtu() -> String {
+fn check_ioctl_siocgifmtu() -> CheckOutput {
     logi("=== CHECK: ioctl SIOCGIFMTU on tun0 ===");
     unsafe {
         let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
         if fd < 0 {
             let err = last_os_errno();
             if err == libc::ECONNREFUSED {
-                return "NETWORK_BLOCKED: socket() returned ECONNREFUSED — network access disabled for this app".into();
+                return CheckOutput::network_blocked(
+                    "socket() returned ECONNREFUSED — network access disabled for this app",
+                );
             }
-            return format!("FAIL: cannot create socket: {}", last_os_error());
+            return CheckOutput::fail(format!("cannot create socket: {}", last_os_error()));
         }
 
         let mut ifr: libc::ifreq = std::mem::zeroed();
@@ -153,28 +202,30 @@ fn check_ioctl_siocgifmtu() -> String {
 
         if ret < 0 {
             if err == libc::ENODEV || err == libc::ENXIO {
-                "PASS: ioctl(tun0, SIOCGIFMTU) returned ENODEV — interface not visible".into()
+                CheckOutput::pass("ioctl(tun0, SIOCGIFMTU) returned ENODEV — interface not visible")
             } else {
-                format!("FAIL: ioctl returned error {err} ({})", last_os_error())
+                CheckOutput::fail(format!("ioctl returned error {err} ({})", last_os_error()))
             }
         } else {
             let mtu = ifr.ifr_ifru.ifru_mtu;
-            format!("FAIL: tun0 is visible! MTU={mtu}")
+            CheckOutput::fail(format!("tun0 is visible! MTU={mtu}"))
         }
     }
 }
 
 #[uniffi::export]
-fn check_ioctl_siocgifconf() -> String {
+fn check_ioctl_siocgifconf() -> CheckOutput {
     logi("=== CHECK: ioctl SIOCGIFCONF enumeration ===");
     unsafe {
         let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
         if fd < 0 {
             let err = last_os_errno();
             if err == libc::ECONNREFUSED {
-                return "NETWORK_BLOCKED: socket() returned ECONNREFUSED — network access disabled for this app".into();
+                return CheckOutput::network_blocked(
+                    "socket() returned ECONNREFUSED — network access disabled for this app",
+                );
             }
-            return format!("FAIL: cannot create socket: {}", last_os_error());
+            return CheckOutput::fail(format!("cannot create socket: {}", last_os_error()));
         }
 
         let mut buf = [0u8; 4096];
@@ -185,7 +236,7 @@ fn check_ioctl_siocgifconf() -> String {
         if libc::ioctl(fd, libc::SIOCGIFCONF as i32, &mut ifc) < 0 {
             let e = last_os_error();
             libc::close(fd);
-            return format!("FAIL: ioctl error: {e}");
+            return CheckOutput::fail(format!("ioctl error: {e}"));
         }
         libc::close(fd);
 
@@ -208,12 +259,12 @@ fn check_ioctl_siocgifconf() -> String {
 }
 
 #[uniffi::export]
-fn check_getifaddrs() -> String {
+fn check_getifaddrs() -> CheckOutput {
     logi("=== CHECK: getifaddrs() enumeration ===");
     unsafe {
         let mut addrs: *mut libc::ifaddrs = std::ptr::null_mut();
         if libc::getifaddrs(&mut addrs) != 0 {
-            return format!("FAIL: getifaddrs error: {}", last_os_error());
+            return CheckOutput::fail(format!("getifaddrs error: {}", last_os_error()));
         }
 
         let mut all: Vec<String> = Vec::new();
@@ -247,14 +298,16 @@ fn check_getifaddrs() -> String {
     }
 }
 
-fn check_proc_file(path: &str) -> String {
+fn check_proc_file(path: &str) -> CheckOutput {
     logi(&format!("=== CHECK: {path} (native read) ==="));
     match std::fs::read_to_string(path) {
         Err(e) => {
             if is_selinux_denial(&e) {
-                return format!("PASS: access denied by SELinux ({e}) — app cannot read {path}");
+                return CheckOutput::pass(format!(
+                    "access denied by SELinux ({e}) — app cannot read {path}"
+                ));
             }
-            format!("FAIL: cannot open {path}: {e}")
+            CheckOutput::fail(format!("cannot open {path}: {e}"))
         }
         Ok(content) => {
             let mut total = 0;
@@ -270,10 +323,13 @@ fn check_proc_file(path: &str) -> String {
                 }
             }
             if vpn_lines.is_empty() {
-                format!("PASS: {total} lines in {path}, no VPN entries")
+                CheckOutput::pass(format!("{total} lines in {path}, no VPN entries"))
             } else {
                 let details: String = vpn_lines.iter().map(|l| format!("\n  {l}")).collect();
-                format!("FAIL: {} VPN lines in {path}:{details}", vpn_lines.len())
+                CheckOutput::fail(format!(
+                    "{} VPN lines in {path}:{details}",
+                    vpn_lines.len()
+                ))
             }
         }
     }
@@ -294,15 +350,15 @@ unsafe fn netlink_recv(fd: i32, buf: &mut [u8]) -> isize {
     }
 }
 
-fn open_netlink() -> Result<i32, String> {
+fn open_netlink() -> Result<i32, CheckOutput> {
     unsafe {
         let fd = libc::socket(libc::AF_NETLINK, libc::SOCK_RAW, libc::NETLINK_ROUTE);
         if fd < 0 {
             let e = std::io::Error::last_os_error();
             return Err(if is_selinux_denial(&e) {
-                format!("PASS: netlink socket denied by SELinux ({e})")
+                CheckOutput::pass(format!("netlink socket denied by SELinux ({e})"))
             } else {
-                format!("FAIL: cannot create netlink socket: {e}")
+                CheckOutput::fail(format!("cannot create netlink socket: {e}"))
             });
         }
 
@@ -313,11 +369,11 @@ fn open_netlink() -> Result<i32, String> {
             let e = std::io::Error::last_os_error();
             libc::close(fd);
             return Err(if is_selinux_denial(&e) {
-                format!(
-                    "PASS: netlink bind denied by SELinux ({e}) — app cannot enumerate interfaces"
-                )
+                CheckOutput::pass(format!(
+                    "netlink bind denied by SELinux ({e}) — app cannot enumerate interfaces"
+                ))
             } else {
-                format!("FAIL: bind error: {e}")
+                CheckOutput::fail(format!("bind error: {e}"))
             });
         }
         Ok(fd)
@@ -376,11 +432,11 @@ unsafe fn for_each_rtattr(
 }
 
 #[uniffi::export]
-fn check_netlink_getlink() -> String {
+fn check_netlink_getlink() -> CheckOutput {
     logi("=== CHECK: netlink RTM_GETLINK dump ===");
     let fd = match open_netlink() {
         Ok(fd) => fd,
-        Err(msg) => return msg,
+        Err(out) => return out,
     };
 
     unsafe {
@@ -404,7 +460,7 @@ fn check_netlink_getlink() -> String {
         {
             let e = last_os_error();
             libc::close(fd);
-            return format!("FAIL: send error: {e}");
+            return CheckOutput::fail(format!("send error: {e}"));
         }
 
         let mut buf = [0u8; 32768];
@@ -455,11 +511,11 @@ fn check_netlink_getlink() -> String {
 /// Same as check_netlink_getlink but uses recv (→ recvfrom) instead of recvmsg.
 /// Temporary check to verify the recvfrom hook works.
 #[uniffi::export]
-fn check_netlink_getlink_recv() -> String {
+fn check_netlink_getlink_recv() -> CheckOutput {
     logi("=== CHECK: netlink RTM_GETLINK via recv ===");
     let fd = match open_netlink() {
         Ok(fd) => fd,
-        Err(msg) => return msg,
+        Err(out) => return out,
     };
 
     unsafe {
@@ -483,7 +539,7 @@ fn check_netlink_getlink_recv() -> String {
         {
             let e = last_os_error();
             libc::close(fd);
-            return format!("FAIL: send error: {e}");
+            return CheckOutput::fail(format!("send error: {e}"));
         }
 
         let mut buf = [0u8; 32768];
@@ -531,11 +587,11 @@ fn check_netlink_getlink_recv() -> String {
 }
 
 #[uniffi::export]
-fn check_netlink_getroute() -> String {
+fn check_netlink_getroute() -> CheckOutput {
     logi("=== CHECK: netlink RTM_GETROUTE dump ===");
     let fd = match open_netlink() {
         Ok(fd) => fd,
-        Err(msg) => return msg,
+        Err(out) => return out,
     };
 
     unsafe {
@@ -559,7 +615,7 @@ fn check_netlink_getroute() -> String {
         {
             let e = last_os_error();
             libc::close(fd);
-            return format!("FAIL: send error: {e}");
+            return CheckOutput::fail(format!("send error: {e}"));
         }
 
         let mut buf = [0u8; 32768];
@@ -606,22 +662,22 @@ fn check_netlink_getroute() -> String {
         libc::close(fd);
 
         if vpn.is_empty() {
-            format!("PASS: {total} routes, no VPN")
+            CheckOutput::pass(format!("{total} routes, no VPN"))
         } else {
-            format!("FAIL: VPN routes via [{}]", join_list(&vpn))
+            CheckOutput::fail(format!("VPN routes via [{}]", join_list(&vpn)))
         }
     }
 }
 
 #[uniffi::export]
-fn check_sys_class_net() -> String {
+fn check_sys_class_net() -> CheckOutput {
     logi("=== CHECK: /sys/class/net/ directory ===");
     match std::fs::read_dir("/sys/class/net") {
         Err(e) => {
             if is_selinux_denial(&e) {
-                format!("PASS: access denied by SELinux ({e})")
+                CheckOutput::pass(format!("access denied by SELinux ({e})"))
             } else {
-                format!("FAIL: cannot open /sys/class/net: {e}")
+                CheckOutput::fail(format!("cannot open /sys/class/net: {e}"))
             }
         }
         Ok(entries) => {
@@ -641,50 +697,50 @@ fn check_sys_class_net() -> String {
 }
 
 // ── /proc/net/* wrappers: one uniffi export per path so the Kotlin side
-//    keeps a thin `checkProcNetFoo(): String` surface instead of pushing
-//    path strings across the FFI. ────────────────────────────────────────
+//    keeps a thin `checkProcNetFoo(): CheckOutput` surface instead of
+//    pushing path strings across the FFI. ──────────────────────────────
 
 #[uniffi::export]
-fn check_proc_net_route() -> String {
+fn check_proc_net_route() -> CheckOutput {
     check_proc_file("/proc/net/route")
 }
 
 #[uniffi::export]
-fn check_proc_net_if_inet6() -> String {
+fn check_proc_net_if_inet6() -> CheckOutput {
     check_proc_file("/proc/net/if_inet6")
 }
 
 #[uniffi::export]
-fn check_proc_net_ipv6_route() -> String {
+fn check_proc_net_ipv6_route() -> CheckOutput {
     check_proc_file("/proc/net/ipv6_route")
 }
 
 #[uniffi::export]
-fn check_proc_net_tcp() -> String {
+fn check_proc_net_tcp() -> CheckOutput {
     check_proc_file("/proc/net/tcp")
 }
 
 #[uniffi::export]
-fn check_proc_net_tcp6() -> String {
+fn check_proc_net_tcp6() -> CheckOutput {
     check_proc_file("/proc/net/tcp6")
 }
 
 #[uniffi::export]
-fn check_proc_net_udp() -> String {
+fn check_proc_net_udp() -> CheckOutput {
     check_proc_file("/proc/net/udp")
 }
 
 #[uniffi::export]
-fn check_proc_net_udp6() -> String {
+fn check_proc_net_udp6() -> CheckOutput {
     check_proc_file("/proc/net/udp6")
 }
 
 #[uniffi::export]
-fn check_proc_net_dev() -> String {
+fn check_proc_net_dev() -> CheckOutput {
     check_proc_file("/proc/net/dev")
 }
 
 #[uniffi::export]
-fn check_proc_net_fib_trie() -> String {
+fn check_proc_net_fib_trie() -> CheckOutput {
     check_proc_file("/proc/net/fib_trie")
 }

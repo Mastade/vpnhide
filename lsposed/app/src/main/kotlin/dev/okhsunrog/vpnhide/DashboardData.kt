@@ -6,6 +6,8 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
+import dev.okhsunrog.vpnhide.checks.CheckOutput
+import dev.okhsunrog.vpnhide.checks.CheckStatus
 import dev.okhsunrog.vpnhide.checks.checkGetifaddrs
 import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifconf
 import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifflags
@@ -1152,7 +1154,7 @@ private fun isVpnActiveSync(): Boolean {
 }
 
 private fun runNativeProtectionCheck(): NativeResult {
-    val checks =
+    val checks: List<Pair<String, () -> CheckOutput>> =
         listOf(
             "ioctl_flags" to { checkIoctlSiocgifflags() },
             "ioctl_mtu" to { checkIoctlSiocgifmtu() },
@@ -1178,28 +1180,21 @@ private fun runNativeProtectionCheck(): NativeResult {
     var skipped = 0
     for ((name, check) in checks) {
         try {
-            val result = check()
-            when {
-                result.startsWith("NETWORK_BLOCKED:") -> {
+            val out = check()
+            when (out.status) {
+                CheckStatus.NETWORK_BLOCKED -> {
                     skipped++
                     VpnHideLog.d(TAG, "native[$name]: NETWORK_BLOCKED")
                 }
 
-                result.contains("SELinux") ||
-                    result.contains("EACCES") ||
-                    result.contains("Permission denied") -> {
-                    skipped++
-                    VpnHideLog.d(TAG, "native[$name]: SELinux blocked, skipping")
-                }
-
-                result.startsWith("PASS") -> {
+                CheckStatus.PASS -> {
                     passed++
                     VpnHideLog.d(TAG, "native[$name]: PASS")
                 }
 
-                else -> {
+                CheckStatus.FAIL -> {
                     failed++
-                    VpnHideLog.w(TAG, "native[$name]: FAIL — $result")
+                    VpnHideLog.w(TAG, "native[$name]: FAIL — ${out.detail}")
                 }
             }
         } catch (e: Exception) {
@@ -1210,13 +1205,12 @@ private fun runNativeProtectionCheck(): NativeResult {
 
     VpnHideLog.i(TAG, "native protection: passed=$passed failed=$failed skipped=$skipped")
     return when {
+        // Nothing ran (all NETWORK_BLOCKED) — treat as OK so the UI doesn't
+        // paint a scary red when the real issue is the app having no network
+        // permission; a dedicated banner covers that case separately.
         passed == 0 && failed == 0 -> NativeResult.Ok
-
-        // all SELinux-blocked = nothing leaked
         failed == 0 -> NativeResult.Ok
-
         passed > 0 -> NativeResult.Fail(passed, failed)
-
         else -> NativeResult.Fail(0, failed)
     }
 }
