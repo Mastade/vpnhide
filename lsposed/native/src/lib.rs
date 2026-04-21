@@ -1,12 +1,11 @@
 mod generated;
 
-use jni::JNIEnv;
-use jni::objects::JClass;
-use jni::sys::jstring;
 use std::ffi::CStr;
 use std::io::ErrorKind;
 
 use crate::generated::iface_lists::matches_vpn;
+
+uniffi::setup_scaffolding!();
 
 fn is_vpn_iface(name: &str) -> bool {
     matches_vpn(name.as_bytes())
@@ -14,12 +13,6 @@ fn is_vpn_iface(name: &str) -> bool {
 
 fn logi(msg: &str) {
     log::info!("{msg}");
-}
-
-fn result_to_jstring(env: &mut JNIEnv, s: &str) -> jstring {
-    env.new_string(s)
-        .map(|j| j.into_raw())
-        .unwrap_or(std::ptr::null_mut())
 }
 
 fn is_selinux_denial(e: &std::io::Error) -> bool {
@@ -97,6 +90,7 @@ const RTA_OIF: u16 = 4;
 
 // ── check implementations ────────────────────────────────────────────
 
+#[uniffi::export]
 fn check_ioctl_siocgifflags() -> String {
     logi("=== CHECK: ioctl SIOCGIFFLAGS on tun0 ===");
     unsafe {
@@ -113,7 +107,7 @@ fn check_ioctl_siocgifflags() -> String {
         let name = b"tun0\0";
         ifr.ifr_name[..name.len()].copy_from_slice(&name.map(|b| b as libc::c_char));
 
-        let ret = libc::ioctl(fd, libc::SIOCGIFFLAGS as _, &ifr);
+        let ret = libc::ioctl(fd, libc::SIOCGIFFLAGS as i32, &ifr);
         let err = last_os_errno();
         libc::close(fd);
 
@@ -136,6 +130,7 @@ fn check_ioctl_siocgifflags() -> String {
     }
 }
 
+#[uniffi::export]
 fn check_ioctl_siocgifmtu() -> String {
     logi("=== CHECK: ioctl SIOCGIFMTU on tun0 ===");
     unsafe {
@@ -152,7 +147,7 @@ fn check_ioctl_siocgifmtu() -> String {
         let name = b"tun0\0";
         ifr.ifr_name[..name.len()].copy_from_slice(&name.map(|b| b as libc::c_char));
 
-        let ret = libc::ioctl(fd, libc::SIOCGIFMTU as _, &ifr);
+        let ret = libc::ioctl(fd, libc::SIOCGIFMTU as i32, &ifr);
         let err = last_os_errno();
         libc::close(fd);
 
@@ -169,6 +164,7 @@ fn check_ioctl_siocgifmtu() -> String {
     }
 }
 
+#[uniffi::export]
 fn check_ioctl_siocgifconf() -> String {
     logi("=== CHECK: ioctl SIOCGIFCONF enumeration ===");
     unsafe {
@@ -186,7 +182,7 @@ fn check_ioctl_siocgifconf() -> String {
         ifc.ifc_len = buf.len() as libc::c_int;
         ifc.ifc_ifcu.ifcu_buf = buf.as_mut_ptr().cast();
 
-        if libc::ioctl(fd, libc::SIOCGIFCONF as _, &mut ifc) < 0 {
+        if libc::ioctl(fd, libc::SIOCGIFCONF as i32, &mut ifc) < 0 {
             let e = last_os_error();
             libc::close(fd);
             return format!("FAIL: ioctl error: {e}");
@@ -211,6 +207,7 @@ fn check_ioctl_siocgifconf() -> String {
     }
 }
 
+#[uniffi::export]
 fn check_getifaddrs() -> String {
     logi("=== CHECK: getifaddrs() enumeration ===");
     unsafe {
@@ -268,12 +265,7 @@ fn check_proc_file(path: &str) -> String {
                 }
                 total += 1;
                 logi(&format!("  {path} line: {}", &line[..line.len().min(120)]));
-                // /proc/net/route and /proc/net/ipv6_route are
-                // whitespace-separated; an iface name is one of the
-                // tokens. Token-by-token check avoids the false
-                // positive of substring "tun" or "gre" appearing
-                // inside a hex-encoded IP address.
-                if line.split_whitespace().any(is_vpn_iface) {
+                if VPN_PREFIXES.iter().any(|p| line.contains(p)) {
                     vpn_lines.push(line[..line.len().min(80)].to_string());
                 }
             }
@@ -383,6 +375,7 @@ unsafe fn for_each_rtattr(
     }
 }
 
+#[uniffi::export]
 fn check_netlink_getlink() -> String {
     logi("=== CHECK: netlink RTM_GETLINK dump ===");
     let fd = match open_netlink() {
@@ -461,6 +454,7 @@ fn check_netlink_getlink() -> String {
 
 /// Same as check_netlink_getlink but uses recv (→ recvfrom) instead of recvmsg.
 /// Temporary check to verify the recvfrom hook works.
+#[uniffi::export]
 fn check_netlink_getlink_recv() -> String {
     logi("=== CHECK: netlink RTM_GETLINK via recv ===");
     let fd = match open_netlink() {
@@ -536,6 +530,7 @@ fn check_netlink_getlink_recv() -> String {
     }
 }
 
+#[uniffi::export]
 fn check_netlink_getroute() -> String {
     logi("=== CHECK: netlink RTM_GETROUTE dump ===");
     let fd = match open_netlink() {
@@ -618,6 +613,7 @@ fn check_netlink_getroute() -> String {
     }
 }
 
+#[uniffi::export]
 fn check_sys_class_net() -> String {
     logi("=== CHECK: /sys/class/net/ directory ===");
     match std::fs::read_dir("/sys/class/net") {
@@ -644,86 +640,51 @@ fn check_sys_class_net() -> String {
     }
 }
 
-// ── JNI exports ──────────────────────────────────────────────────────
+// ── /proc/net/* wrappers: one uniffi export per path so the Kotlin side
+//    keeps a thin `checkProcNetFoo(): String` surface instead of pushing
+//    path strings across the FFI. ────────────────────────────────────────
 
-// ── JNI exports ──────────────────────────────────────────────────────
-
-macro_rules! jni_fn {
-    ($name:ident, $body:expr) => {
-        #[unsafe(no_mangle)]
-        pub extern "system" fn $name(mut env: JNIEnv, _class: JClass) -> jstring {
-            let result = $body;
-            logi(&format!("RESULT: {result}"));
-            result_to_jstring(&mut env, &result)
-        }
-    };
+#[uniffi::export]
+fn check_proc_net_route() -> String {
+    check_proc_file("/proc/net/route")
 }
 
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkIoctlSiocgifflags,
-    check_ioctl_siocgifflags()
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkIoctlSiocgifmtu,
-    check_ioctl_siocgifmtu()
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkIoctlSiocgifconf,
-    check_ioctl_siocgifconf()
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkGetifaddrs,
-    check_getifaddrs()
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkProcNetRoute,
-    check_proc_file("/proc/net/route")
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkProcNetIfInet6,
+#[uniffi::export]
+fn check_proc_net_if_inet6() -> String {
     check_proc_file("/proc/net/if_inet6")
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkNetlinkGetlink,
-    check_netlink_getlink()
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkNetlinkGetlinkRecv,
-    check_netlink_getlink_recv()
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkNetlinkGetroute,
-    check_netlink_getroute()
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkProcNetIpv6Route,
+}
+
+#[uniffi::export]
+fn check_proc_net_ipv6_route() -> String {
     check_proc_file("/proc/net/ipv6_route")
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkProcNetTcp,
+}
+
+#[uniffi::export]
+fn check_proc_net_tcp() -> String {
     check_proc_file("/proc/net/tcp")
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkProcNetTcp6,
+}
+
+#[uniffi::export]
+fn check_proc_net_tcp6() -> String {
     check_proc_file("/proc/net/tcp6")
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkProcNetUdp,
+}
+
+#[uniffi::export]
+fn check_proc_net_udp() -> String {
     check_proc_file("/proc/net/udp")
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkProcNetUdp6,
+}
+
+#[uniffi::export]
+fn check_proc_net_udp6() -> String {
     check_proc_file("/proc/net/udp6")
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkProcNetDev,
+}
+
+#[uniffi::export]
+fn check_proc_net_dev() -> String {
     check_proc_file("/proc/net/dev")
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkProcNetFibTrie,
+}
+
+#[uniffi::export]
+fn check_proc_net_fib_trie() -> String {
     check_proc_file("/proc/net/fib_trie")
-);
-jni_fn!(
-    Java_dev_okhsunrog_vpnhide_NativeChecks_checkSysClassNet,
-    check_sys_class_net()
-);
+}

@@ -30,6 +30,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import dev.okhsunrog.vpnhide.checks.checkGetifaddrs
+import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifconf
+import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifflags
+import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifmtu
+import dev.okhsunrog.vpnhide.checks.checkNetlinkGetlink
+import dev.okhsunrog.vpnhide.checks.checkNetlinkGetlinkRecv
+import dev.okhsunrog.vpnhide.checks.checkNetlinkGetroute
+import dev.okhsunrog.vpnhide.checks.checkProcNetDev
+import dev.okhsunrog.vpnhide.checks.checkProcNetFibTrie
+import dev.okhsunrog.vpnhide.checks.checkProcNetIfInet6
+import dev.okhsunrog.vpnhide.checks.checkProcNetIpv6Route
+import dev.okhsunrog.vpnhide.checks.checkProcNetRoute
+import dev.okhsunrog.vpnhide.checks.checkProcNetTcp
+import dev.okhsunrog.vpnhide.checks.checkProcNetTcp6
+import dev.okhsunrog.vpnhide.checks.checkProcNetUdp
+import dev.okhsunrog.vpnhide.checks.checkProcNetUdp6
+import dev.okhsunrog.vpnhide.checks.checkSysClassNet
 import dev.okhsunrog.vpnhide.generated.IfaceLists
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -632,23 +649,23 @@ internal fun runAllChecks(
 
     val native =
         listOf(
-            nativeCheck(res.getString(R.string.check_ioctl_flags)) { NativeChecks.checkIoctlSiocgifflags() },
-            nativeCheck(res.getString(R.string.check_ioctl_mtu)) { NativeChecks.checkIoctlSiocgifmtu() },
-            nativeCheck(res.getString(R.string.check_ioctl_conf)) { NativeChecks.checkIoctlSiocgifconf() },
-            nativeCheck(res.getString(R.string.check_getifaddrs)) { NativeChecks.checkGetifaddrs() },
-            nativeCheck(res.getString(R.string.check_netlink_getlink)) { NativeChecks.checkNetlinkGetlink() },
-            nativeCheck(res.getString(R.string.check_netlink_getlink_recv)) { NativeChecks.checkNetlinkGetlinkRecv() },
-            nativeCheck(res.getString(R.string.check_netlink_getroute)) { NativeChecks.checkNetlinkGetroute() },
-            nativeCheck(res.getString(R.string.check_proc_route)) { NativeChecks.checkProcNetRoute() },
-            nativeCheck(res.getString(R.string.check_proc_ipv6_route)) { NativeChecks.checkProcNetIpv6Route() },
-            nativeCheck(res.getString(R.string.check_proc_if_inet6)) { NativeChecks.checkProcNetIfInet6() },
-            nativeCheck(res.getString(R.string.check_proc_tcp)) { NativeChecks.checkProcNetTcp() },
-            nativeCheck(res.getString(R.string.check_proc_tcp6)) { NativeChecks.checkProcNetTcp6() },
-            nativeCheck(res.getString(R.string.check_proc_udp)) { NativeChecks.checkProcNetUdp() },
-            nativeCheck(res.getString(R.string.check_proc_udp6)) { NativeChecks.checkProcNetUdp6() },
-            nativeCheck(res.getString(R.string.check_proc_dev)) { NativeChecks.checkProcNetDev() },
-            nativeCheck(res.getString(R.string.check_proc_fib_trie)) { NativeChecks.checkProcNetFibTrie() },
-            nativeCheck(res.getString(R.string.check_sys_class_net)) { NativeChecks.checkSysClassNet() },
+            nativeCheck(res.getString(R.string.check_ioctl_flags)) { checkIoctlSiocgifflags() },
+            nativeCheck(res.getString(R.string.check_ioctl_mtu)) { checkIoctlSiocgifmtu() },
+            nativeCheck(res.getString(R.string.check_ioctl_conf)) { checkIoctlSiocgifconf() },
+            nativeCheck(res.getString(R.string.check_getifaddrs)) { checkGetifaddrs() },
+            nativeCheck(res.getString(R.string.check_netlink_getlink)) { checkNetlinkGetlink() },
+            nativeCheck(res.getString(R.string.check_netlink_getlink_recv)) { checkNetlinkGetlinkRecv() },
+            nativeCheck(res.getString(R.string.check_netlink_getroute)) { checkNetlinkGetroute() },
+            nativeCheck(res.getString(R.string.check_proc_route)) { checkProcNetRoute() },
+            nativeCheck(res.getString(R.string.check_proc_ipv6_route)) { checkProcNetIpv6Route() },
+            nativeCheck(res.getString(R.string.check_proc_if_inet6)) { checkProcNetIfInet6() },
+            nativeCheck(res.getString(R.string.check_proc_tcp)) { checkProcNetTcp() },
+            nativeCheck(res.getString(R.string.check_proc_tcp6)) { checkProcNetTcp6() },
+            nativeCheck(res.getString(R.string.check_proc_udp)) { checkProcNetUdp() },
+            nativeCheck(res.getString(R.string.check_proc_udp6)) { checkProcNetUdp6() },
+            nativeCheck(res.getString(R.string.check_proc_dev)) { checkProcNetDev() },
+            nativeCheck(res.getString(R.string.check_proc_fib_trie)) { checkProcNetFibTrie() },
+            nativeCheck(res.getString(R.string.check_sys_class_net)) { checkSysClassNet() },
             checkNetworkInterfaceEnum(res.getString(R.string.check_net_iface_enum)),
             checkProcNetRouteJava(res.getString(R.string.check_proc_route_java)),
         )

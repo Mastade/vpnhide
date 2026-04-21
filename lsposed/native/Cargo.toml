@@ -7,13 +7,12 @@ license = "MIT"
 
 [lib]
 name = "vpnhide_checks"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-jni = { version = "0.21", default-features = false }
+uniffi = "0.29"
 libc = "0.2"
 log = "0.4"
-android_logger = { version = "0.15", default-features = false }
 
 [profile.release]
 opt-level = "z"

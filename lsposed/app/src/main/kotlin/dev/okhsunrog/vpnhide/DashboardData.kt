@@ -6,6 +6,23 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
+import dev.okhsunrog.vpnhide.checks.checkGetifaddrs
+import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifconf
+import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifflags
+import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifmtu
+import dev.okhsunrog.vpnhide.checks.checkNetlinkGetlink
+import dev.okhsunrog.vpnhide.checks.checkNetlinkGetlinkRecv
+import dev.okhsunrog.vpnhide.checks.checkNetlinkGetroute
+import dev.okhsunrog.vpnhide.checks.checkProcNetDev
+import dev.okhsunrog.vpnhide.checks.checkProcNetFibTrie
+import dev.okhsunrog.vpnhide.checks.checkProcNetIfInet6
+import dev.okhsunrog.vpnhide.checks.checkProcNetIpv6Route
+import dev.okhsunrog.vpnhide.checks.checkProcNetRoute
+import dev.okhsunrog.vpnhide.checks.checkProcNetTcp
+import dev.okhsunrog.vpnhide.checks.checkProcNetTcp6
+import dev.okhsunrog.vpnhide.checks.checkProcNetUdp
+import dev.okhsunrog.vpnhide.checks.checkProcNetUdp6
+import dev.okhsunrog.vpnhide.checks.checkSysClassNet
 import java.io.File
 
 // ── Domain types — invalid states are unrepresentable ────────────────────
@@ -1137,23 +1154,23 @@ private fun isVpnActiveSync(): Boolean {
 private fun runNativeProtectionCheck(): NativeResult {
     val checks =
         listOf(
-            "ioctl_flags" to { NativeChecks.checkIoctlSiocgifflags() },
-            "ioctl_mtu" to { NativeChecks.checkIoctlSiocgifmtu() },
-            "ioctl_conf" to { NativeChecks.checkIoctlSiocgifconf() },
-            "getifaddrs" to { NativeChecks.checkGetifaddrs() },
-            "netlink_getlink" to { NativeChecks.checkNetlinkGetlink() },
-            "netlink_getlink_recv" to { NativeChecks.checkNetlinkGetlinkRecv() },
-            "netlink_getroute" to { NativeChecks.checkNetlinkGetroute() },
-            "proc_route" to { NativeChecks.checkProcNetRoute() },
-            "proc_ipv6_route" to { NativeChecks.checkProcNetIpv6Route() },
-            "proc_if_inet6" to { NativeChecks.checkProcNetIfInet6() },
-            "proc_tcp" to { NativeChecks.checkProcNetTcp() },
-            "proc_tcp6" to { NativeChecks.checkProcNetTcp6() },
-            "proc_udp" to { NativeChecks.checkProcNetUdp() },
-            "proc_udp6" to { NativeChecks.checkProcNetUdp6() },
-            "proc_dev" to { NativeChecks.checkProcNetDev() },
-            "proc_fib_trie" to { NativeChecks.checkProcNetFibTrie() },
-            "sys_class_net" to { NativeChecks.checkSysClassNet() },
+            "ioctl_flags" to { checkIoctlSiocgifflags() },
+            "ioctl_mtu" to { checkIoctlSiocgifmtu() },
+            "ioctl_conf" to { checkIoctlSiocgifconf() },
+            "getifaddrs" to { checkGetifaddrs() },
+            "netlink_getlink" to { checkNetlinkGetlink() },
+            "netlink_getlink_recv" to { checkNetlinkGetlinkRecv() },
+            "netlink_getroute" to { checkNetlinkGetroute() },
+            "proc_route" to { checkProcNetRoute() },
+            "proc_ipv6_route" to { checkProcNetIpv6Route() },
+            "proc_if_inet6" to { checkProcNetIfInet6() },
+            "proc_tcp" to { checkProcNetTcp() },
+            "proc_tcp6" to { checkProcNetTcp6() },
+            "proc_udp" to { checkProcNetUdp() },
+            "proc_udp6" to { checkProcNetUdp6() },
+            "proc_dev" to { checkProcNetDev() },
+            "proc_fib_trie" to { checkProcNetFibTrie() },
+            "sys_class_net" to { checkSysClassNet() },
         )
 
     var passed = 0

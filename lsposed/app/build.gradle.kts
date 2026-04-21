@@ -4,7 +4,20 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.atomicfu)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.gobley.cargo)
+    alias(libs.plugins.gobley.uniffi)
+}
+
+cargo {
+    packageDirectory = layout.projectDirectory.dir("../native")
+}
+
+uniffi {
+    generateFromLibrary {
+        packageName = "dev.okhsunrog.vpnhide.checks"
+    }
 }
 
 android {
@@ -90,26 +103,6 @@ android {
     packaging {
         resources.excludes += "META-INF/*.kotlin_module"
     }
-}
-
-// Build the Rust native checks library via cargo-ndk.
-val buildRustNative by tasks.registering {
-    outputs.upToDateWhen { false }
-
-    doLast {
-        exec {
-            workingDir = file("../native")
-            commandLine("cargo", "ndk", "-t", "arm64-v8a", "build", "--release")
-        }
-        val src = file("../native/target/aarch64-linux-android/release/libvpnhide_checks.so")
-        val dst = file("src/main/jniLibs/arm64-v8a/libvpnhide_checks.so")
-        dst.parentFile.mkdirs()
-        src.copyTo(dst, overwrite = true)
-    }
-}
-
-tasks.named("preBuild") {
-    dependsOn(buildRustNative)
 }
 
 dependencies {
