@@ -182,7 +182,20 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           KEYSTORE_PATH="$GITHUB_WORKSPACE/lsposed/release.jks"
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          else
+            echo "ANDROID_KEYSTORE_BASE64 is empty (fork PR); generating an ephemeral keystore. Resulting APK is signed with a throwaway key and is NOT suitable for release."
+            KEYSTORE_PASSWORD=ephemeral
+            KEY_ALIAS=ephemeral
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE_PATH" \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -keypass "$KEYSTORE_PASSWORD" \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA -keysize 4096 -validity 365 \
+              -dname "CN=vpnhide-fork-ci, O=vpnhide, C=US"
+          fi
           cat > "$GITHUB_WORKSPACE/lsposed/keystore.properties" <<EOF
           password=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS
