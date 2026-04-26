@@ -43,7 +43,11 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          # `--comment` makes the plugin actually publish the review on
+          # the PR instead of running it as a silent dry-run that only
+          # writes to the Job Summary. (default plugin behaviour without
+          # the flag is "render report, don't post".)
+          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment'
           # Echo Claude's full review report into the job log (visible in
           # the Actions UI). Useful when Claude classifies its inline
           # findings as low-confidence and skips posting — without this
