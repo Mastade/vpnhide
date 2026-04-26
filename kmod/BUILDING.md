@@ -2,67 +2,20 @@
 
 Most users should download pre-built modules from [Releases](https://github.com/okhsunrog/vpnhide/releases) — builds are provided for all supported GKI generations. This guide is for contributors or users who need to build from source.
 
-## Quick build with DDK (recommended)
+## Quick build
 
-The easiest way to build is using the same DDK container images that CI uses. No kernel source clone, no toolchain setup.
-
-### Docker
+One command — same script CI runs, no container invocation to memorize:
 
 ```bash
-# Pick your GKI generation (see "Identifying your GKI generation" below)
-KMI=android14-6.1
-
-# Build the kernel module (run from repo root)
-docker run --rm -v $(pwd)/kmod:/work \
-    ghcr.io/ylarod/ddk-min:${KMI}-20260313 sh -c "
-    CLANG_DIR=\$(echo /opt/ddk/clang/clang-r*/bin) \
-    KERNEL_SRC=/opt/ddk/kdir/${KMI} \
-    make"
-
-# Package as KSU module
-cp kmod/vpnhide_kmod.ko kmod/module/
-(cd kmod/module && zip -qr ../../vpnhide-kmod.zip .)
+./kmod/build.py --kmi android14-6.1     # one variant
+./kmod/build.py --all                   # every supported GKI
 ```
 
-### Podman (rootless + SELinux)
+The script auto-detects whether to build natively (you're already inside the DDK image, or you've pointed `--kdir` at a kernel source tree) or to spawn a `ghcr.io/ylarod/ddk-min:<kmi>-<TAG>` container via podman/docker. On rootless podman (Fedora etc) it adds `--userns=keep-id` and `:Z` automatically. The output is `vpnhide-kmod-<kmi>.zip` at the repo root.
 
-On Fedora / RHEL-family systems with rootless Podman, the `docker run` above needs two extra flags:
+Requires `podman` or `docker`. The container image weighs ~1 GB per GKI variant on first pull.
 
-- `--userns=keep-id` — maps the host UID into the container so the bind-mounted `/work` stays writable. Without it the build fails with `mkdir: cannot create directory '/work/.tmp_*': Permission denied`.
-- `:Z` on the `-v` mount — SELinux relabel for the bind mount.
-
-```bash
-KMI=android14-6.1
-
-podman run --rm --userns=keep-id -v "$(pwd)/kmod:/work:Z" \
-    ghcr.io/ylarod/ddk-min:${KMI}-20260313 sh -c '
-    CLANG_DIR=\$(echo /opt/ddk/clang/clang-r*/bin) \
-    KERNEL_SRC=/opt/ddk/kdir/${KMI} \
-    make'
-
-# Package as KSU module
-cp kmod/vpnhide_kmod.ko kmod/module/
-(cd kmod/module && zip -qr ../../vpnhide-kmod.zip .)
-```
-
-On non-SELinux distros with rootful Podman, the plain `docker run` command above works with just `s/docker/podman/`.
-
-## Local build with kernel source
-
-If you prefer building against a local kernel source tree (e.g. for development or debugging), use the Makefile with `direnv`:
-
-```bash
-cd kmod/
-cp .env.example .env
-# Edit .env with paths to your kernel source and clang toolchain
-direnv allow
-make
-./build-zip.py
-```
-
-See `.env.example` for the required variables. You need a prepared kernel source tree with headers and `Module.symvers`.
-
-## Identifying your GKI generation
+### Identifying your GKI generation
 
 ```bash
 adb shell uname -r
@@ -82,10 +35,20 @@ The output looks like `6.1.75-android14-11-g...` — the generation is `android1
 | `6.6.xxx-android15-...` | android15-6.6 |
 | `6.12.xxx-android16-...` | android16-6.12 |
 
+## Local build with kernel source
+
+If you prefer building against a local kernel source tree (e.g. for development or debugging), point `--kdir` at it. The script then runs natively without spinning up a container:
+
+```bash
+./kmod/build.py --kdir ~/kernels/android14-6.1 --kmi android14-6.1
+```
+
+You can also drop a `kmod/.env` file with `KDIR=` / `KERNEL_SRC=` / `CLANG_DIR=` (see `.env.example`) and use [`direnv`](https://direnv.net/) to load it automatically. The script picks those up via env, no flag needed.
+
 ## Install and test
 
 ```bash
-adb push vpnhide-kmod.zip /sdcard/Download/
+adb push vpnhide-kmod-<kmi>.zip /sdcard/Download/
 # Install via KernelSU-Next manager -> Modules -> Install from storage
 # Reboot
 ```
@@ -100,8 +63,12 @@ adb shell "su -c 'cat /proc/vpnhide_targets'"
 
 ## Troubleshooting
 
-**`insmod: Exec format error`** — symvers CRC mismatch. Use the DDK build (matched symvers).
+**`insmod: Exec format error`** — symvers CRC mismatch. Rebuild via the DDK container (`./kmod/build.py --kmi <kmi>`); the container image carries matched symvers.
 
 **`insmod: File exists`** — module already loaded. `rmmod vpnhide_kmod` first.
 
 **kretprobe not firing** — check `dmesg | grep vpnhide` for registration messages and `/proc/vpnhide_targets` for correct UIDs. Target app UIDs change on reinstall — re-resolve via the VPN Hide app.
+
+**`./kmod/build.py` says "neither podman nor docker found"** — install one (`dnf install podman` / `apt install docker.io`), or build natively against a local kernel source via `--kdir`.
+
+**Bumping the DDK image tag** — single source of truth is `DDK_IMAGE_TAG` in `kmod/build.py`. Both this script and `.github/workflows/ci.yml`'s kmod matrix pin to the same value, so update both together.

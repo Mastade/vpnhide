@@ -194,8 +194,8 @@ Rows 1-6, 21, and 24 are the only vectors reachable by regular apps. Everything 
 
 ## Building from source
 
-- **kmod**: `cd kmod && make && ./build-zip.py` — see [kmod/BUILDING.md](kmod/BUILDING.md)
-- **zygisk**: `cd zygisk && ./build-zip.py` (Rust + NDK + cargo-ndk)
+- **kmod**: `./kmod/build.py --kmi android14-6.1` (or `--all`) — auto-spawns the DDK container via podman/docker. Full guide: [kmod/BUILDING.md](kmod/BUILDING.md).
+- **zygisk**: `cd zygisk && ./build.py` (Rust + NDK + cargo-ndk)
 - **lsposed**: `cd lsposed && ./gradlew assembleDebug` (JDK 17 + Rust + NDK + cargo-ndk)
 
 ### Notes for contributors stuck on Windows
@@ -208,17 +208,13 @@ If you're on Windows, there are some inconveniences with building some subprojec
 
 For the next two, you'll (unfortunately) need to install [Docker for Windows](https://docs.docker.com/desktop/setup/install/windows-install/).
 
-**kmod**:
-```powershell
-$env:KMI="android12-5.10"; docker run --rm -it -v "${PWD}:/workspace" -e KMI=$env:KMI -w /workspace "ghcr.io/ylarod/ddk-min:$($env:KMI)-20260313" bash -c 'cd kmod && python3 ./build-zip.py --kmi $KMI'
-```
-Be sure to use the same version of `ylarod/ddk-min` image (the date after KMI name) as used in the `ci.yml` workflow file.
+**kmod**: `python .\kmod\build.py --kmi android14-6.1` — the script picks up Docker and pulls the same `ddk-min` image that CI uses.
 
 **zygisk**:
 ```powershell
-docker run --rm -it -v "${PWD}:/workspace" -v "vpnhide_cargo_cache:/usr/local/cargo/registry" -w /workspace ghcr.io/okhsunrog/vpnhide/ci:latest bash -c 'cd zygisk && python3 ./build-zip.py'
+docker run --rm -it -v "${PWD}:/workspace" -v "vpnhide_cargo_cache:/usr/local/cargo/registry" -w /workspace ghcr.io/okhsunrog/vpnhide/ci:latest bash -c 'cd zygisk && python3 ./build.py'
 ```
-The reason why `zygisk` can't be built directly is because source code of dependency `zygisk-api` contains a file named `aux.rs`. Cargo uses `libgit2` for git operations and it contains a guard, which forbids creating files _containing_ reserved Windows words. You'll get an error: `cannot checkout to invalid path 'src/aux.rs'; class=Checkout (20)`. [Someone reports](https://superuser.com/a/1929659), that it bacame possible to create files containing reserved words **with** an extension after some update, but it seems such behavior wasn't modified in `libgit2`.
+The reason `zygisk` can't be built directly on Windows is that the `zygisk-api` dependency contains a file named `aux.rs`. Cargo uses `libgit2` for git operations, and `libgit2` refuses to create files whose names _contain_ reserved Windows device names (`AUX`, `CON`, `NUL`, …). You'll get: `cannot checkout to invalid path 'src/aux.rs'; class=Checkout (20)`. [Someone reports](https://superuser.com/a/1929659) that some Windows update made it possible to create files containing reserved words **with** an extension, but `libgit2` hasn't been updated to relax the guard.
 
 ## Verified against
 
