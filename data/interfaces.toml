@@ -13,8 +13,6 @@
 #   { exact   = "lo"     }                          name == "lo"
 #   { prefix  = "rmnet"  }                          name.starts_with("rmnet")
 #   { prefix  = "wlan", suffix = "digits" }         starts_with + rest is 1+ ASCII digits
-#   { prefix  = "seth_lte", suffix = "digits_optional" }  starts_with + rest is 0+ ASCII digits
-#   { prefix  = "v4-", suffix = "any" }             starts_with + rest is 1+ any chars
 #   { contains = "vpn"   }                          needle anywhere in name
 #
 # All matches are ASCII case-insensitive.

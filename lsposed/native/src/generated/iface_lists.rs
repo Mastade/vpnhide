@@ -22,17 +22,6 @@ fn starts_with_then_digits_ci(name: &[u8], prefix: &[u8]) -> bool {
     !rest.is_empty() && rest.iter().all(|b| b.is_ascii_digit())
 }
 
-fn starts_with_then_digits_optional_ci(name: &[u8], prefix: &[u8]) -> bool {
-    if !starts_with_ci(name, prefix) {
-        return false;
-    }
-    name[prefix.len()..].iter().all(|b| b.is_ascii_digit())
-}
-
-fn starts_with_then_any_ci(name: &[u8], prefix: &[u8]) -> bool {
-    starts_with_ci(name, prefix) && name.len() > prefix.len()
-}
-
 fn equals_ci(name: &[u8], other: &[u8]) -> bool {
     if name.len() != other.len() {
         return false;
@@ -163,22 +152,5 @@ mod tests {
         assert_eq!(matches_vpn(b"tunl"), true, "matches_vpn('tunl')");
         assert_eq!(matches_vpn(b"atun0"), false, "matches_vpn('atun0')");
         assert_eq!(matches_vpn(b"VPN"), true, "matches_vpn('VPN')");
-    }
-
-    #[test]
-    fn helper_starts_with_then_digits_optional() {
-        assert!(starts_with_then_digits_optional_ci(b"foo", b"foo"));
-        assert!(starts_with_then_digits_optional_ci(b"foo0", b"foo"));
-        assert!(starts_with_then_digits_optional_ci(b"foo123", b"foo"));
-        assert!(!starts_with_then_digits_optional_ci(b"foox", b"foo"));
-        assert!(!starts_with_then_digits_optional_ci(b"fo", b"foo"));
-    }
-
-    #[test]
-    fn helper_starts_with_then_any() {
-        assert!(starts_with_then_any_ci(b"v4-x", b"v4-"));
-        assert!(starts_with_then_any_ci(b"v4-rmnet0", b"v4-"));
-        assert!(!starts_with_then_any_ci(b"v4-", b"v4-"));
-        assert!(!starts_with_then_any_ci(b"v3-x", b"v4-"));
     }
 }
