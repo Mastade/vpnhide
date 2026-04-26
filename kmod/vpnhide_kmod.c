@@ -8,14 +8,18 @@
  * works on stock Android GKI kernels with CONFIG_KPROBES=y.
  *
  * Hooks:
- *   - dev_ioctl: filters SIOCGIFFLAGS / SIOCGIFNAME
- *   - dev_ifconf: filters SIOCGIFCONF interface enumeration
+ *   - dev_ioctl: filters SIOCGIFFLAGS / SIOCGIFNAME / SIOCGIFMTU / etc.
+ *   - sock_ioctl: filters SIOCGIFCONF interface enumeration
  *   - rtnl_fill_ifinfo: filters RTM_NEWLINK netlink dumps (getifaddrs)
  *   - inet6_fill_ifaddr: filters RTM_GETADDR IPv6 responses (getifaddrs)
  *   - inet_fill_ifaddr: filters RTM_GETADDR IPv4 responses (getifaddrs)
  *   - fib_route_seq_show: filters /proc/net/route entries
  *
  * Target UIDs are written to /proc/vpnhide_targets from userspace.
+ *
+ * Architecture: arm64 only. The handlers read syscall arguments via
+ * `regs->regs[N]` (AAPCS64 calling convention). On other architectures
+ * those slots have a different meaning, so the build is gated below.
  */
 
 #include <linux/module.h>
@@ -39,8 +43,26 @@
 
 #include "generated/iface_lists.h"
 
+#ifndef CONFIG_ARM64
+#error "vpnhide_kmod currently supports only arm64 (handlers read regs->regs[N] directly)"
+#endif
+
 #define MODNAME "vpnhide"
 #define MAX_TARGET_UIDS 64
+
+/*
+ * Pre-allocated kretprobe instance pool size, applied to every probe.
+ * Default kernel `register_kretprobe` falls back to NR_CPUS*2 (≈ 18 on
+ * a 9-core Pixel 8 Pro), which is too low for hot ioctl/netlink paths
+ * under multi-app concurrency — exhausted pool causes silent
+ * `nmissed++` and the return handler skipped, which surfaces as a VPN
+ * iface leaking through a single probe call.
+ *
+ * 64 covers a comfortable working set (apps × threads doing
+ * getifaddrs/SIOCGIFCONF/route reads at once) without burning
+ * meaningful memory: 6 probes × 64 instances × ~80 B ≈ 30 KB total.
+ */
+#define VPNHIDE_KRETPROBE_MAXACTIVE 64
 
 /* ------------------------------------------------------------------ */
 /*  Debug logging — toggled via /proc/vpnhide_debug                   */
@@ -48,9 +70,15 @@
 
 static bool debug_enabled;
 
+/*
+ * `debug_enabled` is a single bool, written from /proc/vpnhide_debug
+ * and read from every probe handler. Use READ_ONCE/WRITE_ONCE so the
+ * compiler doesn't tear the access or hoist it across the probe-hot
+ * path — kosher kernel style for unsynchronised flags.
+ */
 #define vpnhide_dbg(fmt, ...)                                     \
 	do {                                                      \
-		if (debug_enabled)                                \
+		if (READ_ONCE(debug_enabled))                     \
 			pr_info(MODNAME ": " fmt, ##__VA_ARGS__); \
 	} while (0)
 
@@ -174,14 +202,15 @@ static ssize_t debug_write(struct file *file, const char __user *ubuf,
 	if (get_user(c, ubuf))
 		return -EFAULT;
 
-	debug_enabled = (c == '1' || c == 'Y' || c == 'y');
-	pr_info(MODNAME ": debug %s\n", debug_enabled ? "enabled" : "disabled");
+	WRITE_ONCE(debug_enabled, c == '1' || c == 'Y' || c == 'y');
+	pr_info(MODNAME ": debug %s\n",
+		READ_ONCE(debug_enabled) ? "enabled" : "disabled");
 	return count;
 }
 
 static int debug_show(struct seq_file *m, void *v)
 {
-	seq_printf(m, "%d\n", debug_enabled ? 1 : 0);
+	seq_printf(m, "%d\n", READ_ONCE(debug_enabled) ? 1 : 0);
 	return 0;
 }
 
@@ -219,6 +248,7 @@ static const struct proc_ops debug_proc_ops = {
 struct dev_ioctl_data {
 	unsigned int cmd;
 	struct ifreq *kifr; /* kernel pointer, saved from x2 */
+	bool active; /* true = caller is target UID, run ret handler */
 };
 
 static int dev_ioctl_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
@@ -227,16 +257,11 @@ static int dev_ioctl_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 
 	data->cmd = (unsigned int)regs->regs[1];
 	data->kifr = (struct ifreq *)regs->regs[2];
+	data->active = is_target_uid();
 
-	if (!is_target_uid()) {
-		vpnhide_dbg("dev_ioctl_entry: uid=%u target=0 cmd=0x%x\n",
-			    from_kuid(&init_user_ns, current_uid()), data->cmd);
-		data->cmd = 0;
-	} else {
-		vpnhide_dbg("dev_ioctl_entry: uid=%u target=1 cmd=0x%x\n",
-			    from_kuid(&init_user_ns, current_uid()), data->cmd);
-	}
-
+	vpnhide_dbg("dev_ioctl_entry: uid=%u target=%d cmd=0x%x\n",
+		    from_kuid(&init_user_ns, current_uid()), data->active,
+		    data->cmd);
 	return 0;
 }
 
@@ -245,7 +270,7 @@ static int dev_ioctl_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
 	struct dev_ioctl_data *data = (void *)ri->data;
 	char name[IFNAMSIZ];
 
-	if (data->cmd == 0 || regs_return_value(regs) != 0)
+	if (!data->active || regs_return_value(regs) != 0)
 		return 0;
 
 	/*
@@ -272,7 +297,7 @@ static struct kretprobe dev_ioctl_krp = {
 	.handler = dev_ioctl_ret,
 	.entry_handler = dev_ioctl_entry,
 	.data_size = sizeof(struct dev_ioctl_data),
-	.maxactive = 20,
+	.maxactive = VPNHIDE_KRETPROBE_MAXACTIVE,
 	.kp.symbol_name = "dev_ioctl",
 };
 
@@ -333,28 +358,51 @@ static int sock_ioctl_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 	return 0;
 }
 
-/* Compact VPN entries out of the userspace ifreq array and update
- * ifc_len. */
-static void filter_ifconf_buf(struct ifreq __user *usr_ifr, int n, int *out_len)
+/*
+ * Why user-memory access is OK here:
+ *
+ * `sock_ioctl_ret` runs as a kretprobe return handler — same process
+ * context that issued the SIOCGIFCONF syscall, kernel mode, original
+ * task is still mapped and addressable. copy_from_user/copy_to_user
+ * are safe in this context (it's the same userspace the original
+ * sock_ioctl handler accessed). PAN/uaccess primitives are honoured.
+ *
+ * Faults are handled cleanly: if the user buffer was unmapped or
+ * raced, the copy fails with -EFAULT and we report COPY_FAULT to the
+ * caller, who skips the ifc_len rewrite to avoid a half-filtered
+ * array (`buffer compacted, length unchanged`) escaping to userspace.
+ */
+enum filter_ifconf_result {
+	FILTER_IFCONF_NO_CHANGE,
+	FILTER_IFCONF_CHANGED,
+	FILTER_IFCONF_COPY_FAULT,
+};
+
+/* Compact VPN entries out of the userspace ifreq array. The caller is
+ * responsible for updating `ifc_len` only on FILTER_IFCONF_CHANGED. */
+static enum filter_ifconf_result filter_ifconf_buf(struct ifreq __user *usr_ifr,
+						   int n, int *out_len)
 {
 	struct ifreq tmp;
 	int i, dst = 0;
 
 	for (i = 0; i < n; i++) {
 		if (copy_from_user(&tmp, &usr_ifr[i], sizeof(tmp)))
-			return;
+			return FILTER_IFCONF_COPY_FAULT;
 		tmp.ifr_name[IFNAMSIZ - 1] = '\0';
 		if (is_vpn_ifname(tmp.ifr_name))
 			continue;
 		if (dst != i) {
 			if (copy_to_user(&usr_ifr[dst], &tmp, sizeof(tmp)))
-				return;
+				return FILTER_IFCONF_COPY_FAULT;
 		}
 		dst++;
 	}
 
-	if (dst < n)
-		*out_len = dst * (int)sizeof(struct ifreq);
+	if (dst == n)
+		return FILTER_IFCONF_NO_CHANGE;
+	*out_len = dst * (int)sizeof(struct ifreq);
+	return FILTER_IFCONF_CHANGED;
 }
 
 static int sock_ioctl_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
@@ -363,6 +411,7 @@ static int sock_ioctl_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
 	struct ifconf __user *uifc;
 	struct ifconf ifc;
 	int orig_len;
+	enum filter_ifconf_result res;
 
 	if (!data->target)
 		return 0;
@@ -380,10 +429,32 @@ static int sock_ioctl_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
 		return 0;
 
 	orig_len = ifc.ifc_len;
-	filter_ifconf_buf(ifc.ifc_req, ifc.ifc_len / (int)sizeof(struct ifreq),
-			  &ifc.ifc_len);
-	if (ifc.ifc_len != orig_len) {
-		put_user(ifc.ifc_len, &uifc->ifc_len);
+	res = filter_ifconf_buf(ifc.ifc_req,
+				ifc.ifc_len / (int)sizeof(struct ifreq),
+				&ifc.ifc_len);
+
+	if (res == FILTER_IFCONF_COPY_FAULT) {
+		/*
+		 * Partial copy failure — buffer may already be
+		 * half-rewritten. Don't update ifc_len: a shorter
+		 * length on a partially-compacted buffer hides VPN
+		 * entries past the truncation but lets earlier ones
+		 * through, which is worse than just leaving
+		 * everything visible. Userspace sees the original
+		 * length and the (mostly-original) buffer.
+		 */
+		vpnhide_dbg(
+			"ifconf: copy fault during filter; ifc_len untouched\n");
+		return 0;
+	}
+
+	if (res == FILTER_IFCONF_CHANGED) {
+		if (put_user(ifc.ifc_len, &uifc->ifc_len)) {
+			vpnhide_dbg(
+				"ifconf: put_user(ifc_len=%d) failed; userspace will see compacted buffer with stale length\n",
+				ifc.ifc_len);
+			return 0;
+		}
 		vpnhide_dbg("ifconf filtered %d -> %d bytes\n", orig_len,
 			    ifc.ifc_len);
 	}
@@ -395,7 +466,7 @@ static struct kretprobe sock_ioctl_krp = {
 	.handler = sock_ioctl_ret,
 	.entry_handler = sock_ioctl_entry,
 	.data_size = sizeof(struct sock_ioctl_data),
-	.maxactive = 20,
+	.maxactive = VPNHIDE_KRETPROBE_MAXACTIVE,
 	.kp.symbol_name = "sock_ioctl",
 };
 
@@ -477,7 +548,7 @@ static struct kretprobe rtnl_fill_krp = {
 	.handler = rtnl_fill_ret,
 	.entry_handler = rtnl_fill_entry,
 	.data_size = sizeof(struct rtnl_fill_data),
-	.maxactive = 20,
+	.maxactive = VPNHIDE_KRETPROBE_MAXACTIVE,
 	.kp.symbol_name = "rtnl_fill_ifinfo",
 };
 
@@ -554,7 +625,7 @@ static struct kretprobe inet6_fill_krp = {
 	.handler = inet6_fill_ret,
 	.entry_handler = inet6_fill_entry,
 	.data_size = sizeof(struct inet6_fill_data),
-	.maxactive = 20,
+	.maxactive = VPNHIDE_KRETPROBE_MAXACTIVE,
 	.kp.symbol_name = "inet6_fill_ifaddr",
 };
 
@@ -618,7 +689,7 @@ static struct kretprobe inet_fill_krp = {
 	.handler = inet_fill_ret,
 	.entry_handler = inet_fill_entry,
 	.data_size = sizeof(struct inet_fill_data),
-	.maxactive = 20,
+	.maxactive = VPNHIDE_KRETPROBE_MAXACTIVE,
 	.kp.symbol_name = "inet_fill_ifaddr",
 };
 
@@ -729,7 +800,7 @@ static struct kretprobe fib_route_krp = {
 	.handler = fib_route_ret,
 	.entry_handler = fib_route_entry,
 	.data_size = sizeof(struct fib_route_data),
-	.maxactive = 20,
+	.maxactive = VPNHIDE_KRETPROBE_MAXACTIVE,
 	.kp.symbol_name = "fib_route_seq_show",
 };
 

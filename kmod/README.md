@@ -10,7 +10,7 @@ Zero footprint in the target app's process -- no modified function prologues, no
 |---|---|---|
 | `dev_ioctl` | `SIOCGIFFLAGS`, `SIOCGIFNAME`, and other per-interface ioctls: returns `-ENODEV` for VPN interfaces | Direct `ioctl()` calls from native code (Flutter/Dart, JNI, C/C++) |
 | `sock_ioctl` | `SIOCGIFCONF`: compacts VPN entries out of the returned interface array | Interface enumeration via `ioctl(SIOCGIFCONF)` |
-| `rtnl_fill_ifinfo` | Returns `-EMSGSIZE` for VPN devices during RTM_NEWLINK netlink dumps, causing the kernel to skip them | `getifaddrs()` (which uses netlink internally), any netlink-based interface enumeration |
+| `rtnl_fill_ifinfo` | Trims VPN entries from RTM_NEWLINK netlink dumps via `skb_trim` and returns 0 | `getifaddrs()` (which uses netlink internally), any netlink-based interface enumeration |
 | `inet6_fill_ifaddr` | Trims VPN entries from RTM_GETADDR IPv6 responses via `skb_trim` | IPv6 address enumeration over netlink |
 | `inet_fill_ifaddr` | Trims VPN entries from RTM_GETADDR IPv4 responses via `skb_trim` | IPv4 address enumeration over netlink |
 | `fib_route_seq_show` | Forward-scans for VPN lines and compacts them out with `memmove` | `/proc/net/route` reads |
@@ -112,17 +112,11 @@ The natural choice would be to hook `dev_ifconf` directly, but on GKI 5.10 (Clan
 
 The entry handler stashes the userspace `argp`; the return handler reads back the buffer, compacts out VPN entries, and updates `ifc_len` via `put_user`. Cost is one `cmd == SIOCGIFCONF` compare per socket ioctl for non-target paths.
 
-### rtnl_fill_ifinfo: -EMSGSIZE trick
+### rtnl_fill_ifinfo / inet_fill_ifaddr / inet6_fill_ifaddr: skb_trim
 
-To skip a VPN interface during a netlink RTM_GETLINK dump without corrupting the message stream, the return handler sets the return value to `-EMSGSIZE`. The dump iterator interprets this as "skb too small for this entry" and moves to the next device without adding the current one -- effectively skipping it.
+All three netlink fill functions are skipped the same way: the entry handler saves `skb->len` before the fill writes anything; the return handler calls `skb_trim(skb, saved_len)` to undo whatever was written, then returns 0 (success). The dump iterator sees a successful entry of zero new bytes and advances to the next interface/address.
 
-This works because the RTM_GETLINK dump iterator (`rtnl_dump_ifinfo`) processes one device at a time. When it gets `-EMSGSIZE`, it stops the current batch and returns what it has so far. On the next `recv()`, the iterator resumes from the skipped device -- but since `rtnl_fill_ifinfo` returns `-EMSGSIZE` again, it advances to the next device. The VPN entry is never seen by userspace.
-
-### inet_fill_ifaddr / inet6_fill_ifaddr: why NOT -EMSGSIZE
-
-The RTM_GETADDR dump uses a different iterator that behaves differently on `-EMSGSIZE`. When the first address entry in a fresh (empty) skb returns `-EMSGSIZE`, the iterator thinks the skb is too small for even one entry and retries indefinitely -- causing an infinite loop that hangs `getifaddrs()` and can freeze system services at boot.
-
-Instead, we save `skb->len` before the fill function runs. In the return handler, we call `skb_trim(skb, saved_len)` to undo whatever the fill function wrote, then return 0 (success). The dump iterator sees a successful return but no new data was added, so it moves to the next address. This cleanly skips VPN addresses without triggering the retry logic.
+We do **not** return `-EMSGSIZE` to skip a VPN entry. On Android 14 / 6.1 GKI kernels, the dump iterator interprets `-EMSGSIZE` on an empty skb as "buffer too small for even one entry" and retries the same entry forever — observed in production as a hang of `getifaddrs()` (issue #38). The `skb_trim`-and-return-0 path avoids the retry loop on every netlink dump function uniformly.
 
 ### fib_route_seq_show: seq_file buffer compaction
 
