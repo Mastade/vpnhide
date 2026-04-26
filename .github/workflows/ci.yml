@@ -112,7 +112,10 @@ jobs:
       # of twice. ANDROID_NDK_ROOT is baked into the CI image
       # (Dockerfile ENV), no manual export needed.
       - name: Android lint + Kotlin unit tests
-        run: cd lsposed && ./gradlew :app:lint :app:testDebugUnitTest
+        # `:app:lintDebug` (not `:app:lint`) runs Lint on the debug
+        # variant only — release-variant Lint covers R8/ProGuard issues
+        # and is reserved for ad-hoc local runs / future tag CI.
+        run: cd lsposed && ./gradlew :app:lintDebug :app:testDebugUnitTest
 
   kmod:
     runs-on: ubuntu-latest

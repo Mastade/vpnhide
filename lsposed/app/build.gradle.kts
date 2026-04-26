@@ -110,6 +110,20 @@ android {
     packaging {
         resources.excludes += "META-INF/*.kotlin_module"
     }
+
+    // Skip Android Lint on test source sets. Our `src/test/` is pure JVM
+    // unit-test logic (filter/recommendation builders) — no Android
+    // lifecycle, no layouts, no context misuse. Functional bugs are
+    // caught by `:app:testDebugUnitTest`. Saves ~15–20 s of
+    // `lintAnalyze*Test` per Lint run.
+    //
+    // We deliberately leave `checkReleaseBuilds` at its default (true):
+    // CI invokes `:app:lintDebug` on PRs (so the release variant isn't
+    // analysed there), but ad-hoc `./gradlew :app:lint` on a release
+    // build still catches R8/ProGuard-specific issues like MissingRules.
+    lint {
+        checkTestSources = false
+    }
 }
 
 dependencies {
