@@ -4,9 +4,9 @@ How to build vpnhide from source.
 
 ## Prerequisites
 
-- **JDK 21** — required by the Android Gradle Plugin in `lsposed/`
+- **JDK 17 or later** — what the CI image installs (`openjdk-17-jdk-headless`); local builds with JDK 21 also work. The `lsposed/app` Gradle build sets `sourceCompatibility = 17` and `jvmTarget = "17"`.
 - **Android SDK** — install `platforms;android-35`, `build-tools;35.0.0`, `platform-tools` (via Android Studio or `cmdline-tools`). Export `ANDROID_HOME`.
-- **Android NDK r27c or later** — export `ANDROID_NDK_HOME` (or drop it in `$ANDROID_HOME/ndk/<version>/`, the scripts auto-detect).
+- **Android NDK r27c or later** — export `ANDROID_NDK_HOME` (or drop it in `$ANDROID_HOME/ndk/<version>/`, the scripts auto-detect). The Gobley Gradle plugin used by `lsposed/app` reads `ANDROID_NDK_ROOT`, not `ANDROID_NDK_HOME`, so export both (or alias one to the other) when invoking Gradle directly.
 - **Rust** (latest stable) with the Android target:
   ```sh
   rustup target add aarch64-linux-android
@@ -15,6 +15,8 @@ How to build vpnhide from source.
 - **`podman` or `docker`** — only for building the kernel module via DDK images. See [kmod/BUILDING.md](../kmod/BUILDING.md).
 - **`zip`** — packaging module zips.
 - **`adb`** — installing builds on a device.
+
+[Gobley](https://github.com/gobley/gobley) (Gradle plugins `dev.gobley.cargo` + `dev.gobley.uniffi`) is what builds the Rust crate at `lsposed/native/` via cargo-ndk and bundles the resulting `libvpnhide_checks.so` plus its UniFFI-generated Kotlin bindings (package `dev.okhsunrog.vpnhide.checks`) into the APK. The plugins are auto-resolved by Gradle from Maven Central — no manual install. Version is pinned in `lsposed/gradle/libs.versions.toml`.
 
 ## Repository layout
 
@@ -88,19 +90,28 @@ After flashing kmod or zygisk, reboot the device.
 
 ## CI lints (run before pushing)
 
-CI runs the same checks:
+CI runs the same checks. See [.github/workflows/ci.yml](../.github/workflows/ci.yml) for the authoritative list.
 
 ```sh
+# Codegen drift — run after editing data/interfaces.toml; CI fails on diff
+python3 scripts/codegen-interfaces.py
+git diff --quiet  # must be clean
+
 # Rust
 cd zygisk && cargo fmt --check && cargo ndk -t arm64-v8a clippy -- -D warnings
-cd lsposed/native && cargo ndk -t arm64-v8a clippy -- -D warnings
+cd ../lsposed/native && cargo fmt --check && cargo ndk -t arm64-v8a clippy -- -D warnings
+cd ../zygisk && cargo test
+cd ../lsposed/native && cargo test
 
-# C
+# C (kernel module)
 clang-format --dry-run --Werror kmod/vpnhide_kmod.c
+# Host-side test of the generated VPN-iface matcher used by the kernel module
+gcc -O2 -Wall -Werror -o /tmp/test_iface_lists kmod/test_iface_lists.c && /tmp/test_iface_lists
 
 # Kotlin
 ktlint "lsposed/**/*.kt"
-cd lsposed && ./gradlew :app:lint
+cd lsposed && ./gradlew --no-daemon :app:lint
+cd lsposed && ./gradlew --no-daemon :app:testDebugUnitTest
 ```
 
 ## Build versions

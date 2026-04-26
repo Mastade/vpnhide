@@ -76,7 +76,9 @@ adb logcat | grep VpnHide
 ./gradlew assembleDebug
 ```
 
-Requires JDK 17. Output: `app/build/outputs/apk/debug/app-debug.apk`.
+Requires JDK 17 or later. Output: `app/build/outputs/apk/debug/app-debug.apk`.
+
+The build cross-compiles `lsposed/native/` (Rust crate) for `aarch64-linux-android` via cargo-ndk and bundles the resulting `libvpnhide_checks.so` into the APK's `jniLibs/`, plus auto-generated UniFFI Kotlin bindings under package `dev.okhsunrog.vpnhide.checks`. Both steps are driven by [Gobley](https://github.com/gobley/gobley) Gradle plugins (`dev.gobley.cargo` + `dev.gobley.uniffi`) — no manual `cargo` invocation needed. See [../docs/development.md](../docs/development.md#prerequisites) for the full prereq list.
 
 ## License
 

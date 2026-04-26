@@ -27,7 +27,7 @@ vpnhide solves both problems with a layered architecture:
 **Layer 1 — Java API (lsposed module):** hooks `system_server`, not the target app. `NetworkCapabilities`, `NetworkInfo`, and `LinkProperties` are filtered at the Binder level *before* data reaches the app's process. The app receives clean data over IPC — no injection into its process, nothing for anti-tamper to detect.
 
 **Layer 2 — Native (kmod or zygisk):** covers every native detection path:
-- **kmod** (recommended) — kernel-level `kretprobe` hooks. Filters `ioctl` (SIOCGIFFLAGS, SIOCGIFNAME, SIOCGIFCONF), `getifaddrs`/netlink dumps (RTM_GETLINK, RTM_GETADDR), and `/proc/net/*` reads — all before the syscall returns to userspace. Zero in-process footprint. No library injection. Nothing to detect.
+- **kmod** (recommended) — kernel-level `kretprobe` hooks. Filters `ioctl` (SIOCGIFFLAGS, SIOCGIFNAME, SIOCGIFCONF), `getifaddrs`/netlink dumps (RTM_GETLINK, RTM_GETADDR), and `/proc/net/route` reads — all before the syscall returns to userspace. Other `/proc/net/*` files (`tcp*`, `udp*`, `dev`, `if_inet6`, etc.) are blocked by SELinux for untrusted apps on Android 10+, so no hook is needed there. Zero in-process footprint. No library injection. Nothing to detect.
 - **zygisk** (alternative) — inline-hooks `libc.so` inside the app process. Same native coverage as kmod but runs in-process, so it's theoretically detectable by advanced anti-tamper. Use this if your kernel isn't supported by kmod.
 
 **Layer 3 — Additional app-level controls (integrated into the VPN Hide app):**

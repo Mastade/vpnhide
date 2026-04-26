@@ -23,8 +23,8 @@ PLT hooks patch the caller library's procedure linkage table. At `post_app_speci
 
 ### Flow
 
-1. **`pre_app_specialize`** -- runs on zygote before uid drop. Reads `args.nice_name`, checks against `/data/adb/vpnhide_zygisk/targets.txt`. Non-targeted apps get `DlCloseModuleLibrary` (zero cost after unload).
-2. **`post_app_specialize`** -- on targeted processes only: `shadowhook_init`, install four inline hooks (`ioctl`, `getifaddrs`, `openat`, `recvmsg`), then scrub maps.
+1. **`pre_app_specialize`** -- runs in the already-forked child, before the kernel drops it to the app's UID and SELinux context (still has zygote privileges at this point). Reads `args.nice_name`, checks against `/data/adb/vpnhide_zygisk/targets.txt`. Non-targeted apps get `DlCloseModuleLibrary` (zero cost after unload). See `src/lib.rs`'s top-level doc block for the full Zygisk lifecycle and why every Rust `static` is fresh per app launch.
+2. **`post_app_specialize`** -- on targeted processes only: `shadowhook_init`, install five inline hooks (`ioctl`, `getifaddrs`, `openat`, `recvmsg`, `recv`), then scrub maps. `recv` is hooked separately because bionic's `recv()` is `b recvfrom` (tail-call) — patching `recvfrom`'s prologue would break `recv`.
 
 ### Thread-local guard
 
@@ -125,7 +125,7 @@ VPN interface prefixes: `tun`, `ppp`, `tap`, `wg`, `ipsec`, `xfrm`, `utun`, `l2t
 ## Files
 
 - `src/lib.rs` -- module entry point, target gating, hook installer, maps scrubbing
-- `src/hooks.rs` -- hook replacements for ioctl, getifaddrs, openat, recvmsg
+- `src/hooks.rs` -- hook replacements for ioctl, getifaddrs, openat, recvmsg, recv
 - `src/filter.rs` -- VPN interface name matching and proc/net content filters (unit tested)
 - `src/shadowhook.rs` -- minimal FFI to shadowhook
 - `build.rs` -- drives CMake on the shadowhook submodule
