@@ -6,6 +6,25 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
+import dev.okhsunrog.vpnhide.checks.CheckOutput
+import dev.okhsunrog.vpnhide.checks.CheckStatus
+import dev.okhsunrog.vpnhide.checks.checkGetifaddrs
+import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifconf
+import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifflags
+import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifmtu
+import dev.okhsunrog.vpnhide.checks.checkNetlinkGetlink
+import dev.okhsunrog.vpnhide.checks.checkNetlinkGetlinkRecv
+import dev.okhsunrog.vpnhide.checks.checkNetlinkGetroute
+import dev.okhsunrog.vpnhide.checks.checkProcNetDev
+import dev.okhsunrog.vpnhide.checks.checkProcNetFibTrie
+import dev.okhsunrog.vpnhide.checks.checkProcNetIfInet6
+import dev.okhsunrog.vpnhide.checks.checkProcNetIpv6Route
+import dev.okhsunrog.vpnhide.checks.checkProcNetRoute
+import dev.okhsunrog.vpnhide.checks.checkProcNetTcp
+import dev.okhsunrog.vpnhide.checks.checkProcNetTcp6
+import dev.okhsunrog.vpnhide.checks.checkProcNetUdp
+import dev.okhsunrog.vpnhide.checks.checkProcNetUdp6
+import dev.okhsunrog.vpnhide.checks.checkSysClassNet
 import java.io.File
 
 // ── Domain types — invalid states are unrepresentable ────────────────────
@@ -1135,25 +1154,25 @@ private fun isVpnActiveSync(): Boolean {
 }
 
 private fun runNativeProtectionCheck(): NativeResult {
-    val checks =
+    val checks: List<Pair<String, () -> CheckOutput>> =
         listOf(
-            "ioctl_flags" to { NativeChecks.checkIoctlSiocgifflags() },
-            "ioctl_mtu" to { NativeChecks.checkIoctlSiocgifmtu() },
-            "ioctl_conf" to { NativeChecks.checkIoctlSiocgifconf() },
-            "getifaddrs" to { NativeChecks.checkGetifaddrs() },
-            "netlink_getlink" to { NativeChecks.checkNetlinkGetlink() },
-            "netlink_getlink_recv" to { NativeChecks.checkNetlinkGetlinkRecv() },
-            "netlink_getroute" to { NativeChecks.checkNetlinkGetroute() },
-            "proc_route" to { NativeChecks.checkProcNetRoute() },
-            "proc_ipv6_route" to { NativeChecks.checkProcNetIpv6Route() },
-            "proc_if_inet6" to { NativeChecks.checkProcNetIfInet6() },
-            "proc_tcp" to { NativeChecks.checkProcNetTcp() },
-            "proc_tcp6" to { NativeChecks.checkProcNetTcp6() },
-            "proc_udp" to { NativeChecks.checkProcNetUdp() },
-            "proc_udp6" to { NativeChecks.checkProcNetUdp6() },
-            "proc_dev" to { NativeChecks.checkProcNetDev() },
-            "proc_fib_trie" to { NativeChecks.checkProcNetFibTrie() },
-            "sys_class_net" to { NativeChecks.checkSysClassNet() },
+            "ioctl_flags" to { checkIoctlSiocgifflags() },
+            "ioctl_mtu" to { checkIoctlSiocgifmtu() },
+            "ioctl_conf" to { checkIoctlSiocgifconf() },
+            "getifaddrs" to { checkGetifaddrs() },
+            "netlink_getlink" to { checkNetlinkGetlink() },
+            "netlink_getlink_recv" to { checkNetlinkGetlinkRecv() },
+            "netlink_getroute" to { checkNetlinkGetroute() },
+            "proc_route" to { checkProcNetRoute() },
+            "proc_ipv6_route" to { checkProcNetIpv6Route() },
+            "proc_if_inet6" to { checkProcNetIfInet6() },
+            "proc_tcp" to { checkProcNetTcp() },
+            "proc_tcp6" to { checkProcNetTcp6() },
+            "proc_udp" to { checkProcNetUdp() },
+            "proc_udp6" to { checkProcNetUdp6() },
+            "proc_dev" to { checkProcNetDev() },
+            "proc_fib_trie" to { checkProcNetFibTrie() },
+            "sys_class_net" to { checkSysClassNet() },
         )
 
     var passed = 0
@@ -1161,28 +1180,21 @@ private fun runNativeProtectionCheck(): NativeResult {
     var skipped = 0
     for ((name, check) in checks) {
         try {
-            val result = check()
-            when {
-                result.startsWith("NETWORK_BLOCKED:") -> {
+            val out = check()
+            when (out.status) {
+                CheckStatus.NETWORK_BLOCKED -> {
                     skipped++
                     VpnHideLog.d(TAG, "native[$name]: NETWORK_BLOCKED")
                 }
 
-                result.contains("SELinux") ||
-                    result.contains("EACCES") ||
-                    result.contains("Permission denied") -> {
-                    skipped++
-                    VpnHideLog.d(TAG, "native[$name]: SELinux blocked, skipping")
-                }
-
-                result.startsWith("PASS") -> {
+                CheckStatus.PASS -> {
                     passed++
                     VpnHideLog.d(TAG, "native[$name]: PASS")
                 }
 
-                else -> {
+                CheckStatus.FAIL -> {
                     failed++
-                    VpnHideLog.w(TAG, "native[$name]: FAIL — $result")
+                    VpnHideLog.w(TAG, "native[$name]: FAIL — ${out.detail}")
                 }
             }
         } catch (e: Exception) {
@@ -1193,9 +1205,11 @@ private fun runNativeProtectionCheck(): NativeResult {
 
     VpnHideLog.i(TAG, "native protection: passed=$passed failed=$failed skipped=$skipped")
     return when {
+        // Nothing ran (all NETWORK_BLOCKED) — treat as OK so the UI doesn't
+        // paint a scary red when the real issue is the app having no network
+        // permission; a dedicated banner covers that case separately.
         passed == 0 && failed == 0 -> NativeResult.Ok
 
-        // all SELinux-blocked = nothing leaked
         failed == 0 -> NativeResult.Ok
 
         passed > 0 -> NativeResult.Fail(passed, failed)

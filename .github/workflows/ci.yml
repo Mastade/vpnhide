@@ -74,10 +74,17 @@ jobs:
       # Kotlin
       - name: ktlint
         run: ktlint "lsposed/**/*.kt"
+      # Gobley's cargo plugin reads ANDROID_NDK_ROOT (not _HOME) to find the
+      # NDK at gradle configure time. The CI image only sets _HOME; export
+      # _ROOT here until the next image rebuild bakes it in.
       - name: Android lint
-        run: cd lsposed && ./gradlew --no-daemon :app:lint
+        run: |
+          export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
+          cd lsposed && ./gradlew --no-daemon :app:lint
       - name: Kotlin unit tests
-        run: cd lsposed && ./gradlew --no-daemon :app:testDebugUnitTest
+        run: |
+          export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
+          cd lsposed && ./gradlew --no-daemon :app:testDebugUnitTest
 
   kmod:
     runs-on: ubuntu-latest
@@ -201,8 +208,12 @@ jobs:
           storeFile=$KEYSTORE_PATH
           EOF
 
+      # Gobley's cargo plugin reads ANDROID_NDK_ROOT (not _HOME) to find the
+      # NDK at gradle configure time. The CI image only sets _HOME; export
+      # _ROOT here until the next image rebuild bakes it in.
       - name: Build APK
         run: |
+          export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
           cd "$GITHUB_WORKSPACE/lsposed" && ./gradlew --no-daemon assembleRelease
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/vpnhide.apk"
 
