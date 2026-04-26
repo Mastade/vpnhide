@@ -165,7 +165,9 @@ internal object PackageVisibilityHooks {
 
     private fun watchConfigFiles() {
         val observer =
-            object : FileObserver(File("/data/system"), CREATE or CLOSE_WRITE or MOVED_TO or MODIFY) {
+            // CLOSE_WRITE + MOVED_TO only — see HookEntry.watchTargetUidsFile
+            // for why MODIFY is intentionally absent.
+            object : FileObserver(File("/data/system"), CREATE or CLOSE_WRITE or MOVED_TO) {
                 override fun onEvent(
                     event: Int,
                     path: String?,

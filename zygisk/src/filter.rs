@@ -23,7 +23,6 @@ pub fn is_vpn_iface_bytes(name: &[u8]) -> bool {
 }
 
 /// Convenience wrapper: takes a `CStr` and dispatches to `is_vpn_iface_bytes`.
-#[allow(dead_code)]
 pub fn is_vpn_iface_cstr(name: &CStr) -> bool {
     is_vpn_iface_bytes(name.to_bytes())
 }

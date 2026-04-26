@@ -774,7 +774,21 @@ static int __init vpnhide_init(void)
 	 * and the VPN Hide app (both root). Apps must not see the target list. */
 	targets_entry =
 		proc_create("vpnhide_targets", 0600, NULL, &targets_proc_ops);
+	if (!targets_entry) {
+		/* Without /proc/vpnhide_targets userspace cannot configure
+		 * the target UID list, so the module would silently filter
+		 * nothing — fail loudly instead of pretending to work. */
+		pr_err(MODNAME
+		       ": proc_create(vpnhide_targets) failed; aborting\n");
+		for (i = 0; i < ARRAY_SIZE(probes); i++)
+			if (probes[i].registered)
+				unregister_kretprobe(probes[i].krp);
+		return -ENOMEM;
+	}
 	debug_entry = proc_create("vpnhide_debug", 0600, NULL, &debug_proc_ops);
+	if (!debug_entry)
+		pr_warn(MODNAME
+			": proc_create(vpnhide_debug) failed; debug toggle unavailable\n");
 
 	pr_info(MODNAME ": loaded — write UIDs to /proc/vpnhide_targets\n");
 	return 0;

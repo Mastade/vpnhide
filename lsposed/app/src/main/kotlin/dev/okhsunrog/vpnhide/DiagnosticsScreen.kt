@@ -1147,6 +1147,12 @@ private suspend fun exportDebugZip(
                                 "VPNHideTest:*",
                                 "VpnHide:*",
                                 "VpnHide-Dashboard:*",
+                                // zygisk's android_logger uses this tag (see
+                                // zygisk/src/lib.rs:LOG_TAG); without it the
+                                // exported zip is missing all native-side
+                                // hook logs, which is the half users most
+                                // need to debug.
+                                "vpnhide-zygisk:*",
                             ),
                         )
                     val output = proc.inputStream.bufferedReader().readText()

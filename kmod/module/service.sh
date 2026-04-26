@@ -56,7 +56,10 @@ resolve_uids() {
         pkg="$(echo "$line" | tr -d '[:space:]')"
         [ -z "$pkg" ] && continue
         case "$pkg" in \#*) continue ;; esac
-        uid_csv="$(echo "$ALL_PACKAGES" | grep "^package:${pkg} " | sed 's/.*uid://')"
+        # Literal match on $1 — grep would treat dots in `pkg` as regex
+        # wildcards (e.g. `com.x.y` matching `comXxXy` if such a package
+        # ever existed). awk's `$1 == p` compares fields literally.
+        uid_csv="$(echo "$ALL_PACKAGES" | awk -v p="package:${pkg}" '$1 == p { sub(/uid:/, "", $2); print $2; exit }')"
         if [ -n "$uid_csv" ]; then
             expanded="$(echo "$uid_csv" | tr ',' '\n')"
             if [ -z "$uids" ]; then uids="$expanded"; else uids="${uids}

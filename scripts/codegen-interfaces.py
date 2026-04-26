@@ -134,7 +134,7 @@ def parse_test(entry: dict[str, Any]) -> TestVector:
     if "name" not in entry or "is_vpn" not in entry:
         raise SystemExit(f"[[test]] entry needs name and is_vpn: {entry!r}")
     name = str(entry["name"])
-    if not all(c == "" or 0x20 <= ord(c) < 0x7F for c in name):
+    if not all(0x20 <= ord(c) < 0x7F for c in name):
         raise SystemExit(f"non-ASCII test name {name!r}; the matcher itself is ASCII-only")
     return TestVector(name=name, is_vpn=bool(entry["is_vpn"]))
 

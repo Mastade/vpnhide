@@ -149,9 +149,16 @@ internal fun ensureSelfInTargets(selfPkg: String): Boolean {
 
     addIfMissing(KMOD_TARGETS, "/data/adb/vpnhide_kmod")
     addIfMissing(ZYGISK_TARGETS, "/data/adb/vpnhide_zygisk")
-    // Zygisk reads targets from module dir (via get_module_dir() fd), not from persistent dir.
-    // Must sync after adding self, otherwise zygisk won't hook us on next launch.
-    suExec("[ -d $ZYGISK_MODULE_DIR ] && cp $ZYGISK_TARGETS $ZYGISK_MODULE_TARGETS 2>/dev/null; true")
+    // Zygisk reads targets from module dir (via get_module_dir() fd), not
+    // from persistent dir. Must sync after adding self, otherwise zygisk
+    // won't hook us on next launch. Surface real `cp` failures (read-only
+    // mount, SELinux denial) — silent failure here used to manifest as
+    // "I edited targets in the app but zygisk didn't pick it up".
+    val (cpExit, cpOut) =
+        suExec("if [ -d $ZYGISK_MODULE_DIR ]; then cp $ZYGISK_TARGETS $ZYGISK_MODULE_TARGETS 2>&1; fi")
+    if (cpExit != 0 && cpOut.isNotBlank()) {
+        VpnHideLog.w(TAG, "ensureSelfInTargets: zygisk module dir copy failed (exit=$cpExit): ${cpOut.trim()}")
+    }
     suExec("mkdir -p /data/adb/vpnhide_lsposed")
     addIfMissing(LSPOSED_TARGETS, null)
 
@@ -181,9 +188,12 @@ internal fun ensureSelfInTargets(selfPkg: String): Boolean {
     // the existing file content.
     val uidCmd =
         buildString {
+            // Literal field match via awk — grep would treat dots in
+            // `selfPkg` as regex wildcards.
             append("ALL_PKGS=\"\$(pm list packages -U --user all 2>/dev/null)\"")
             append(
-                "; SELF_UIDS=\$(echo \"\$ALL_PKGS\" | grep '^package:$selfPkg ' | sed 's/.*uid://' | tr ',' '\\n')",
+                "; SELF_UIDS=\$(echo \"\$ALL_PKGS\" | awk -v p=\"package:$selfPkg\" " +
+                    "'\$1 == p { sub(/uid:/, \"\", \$2); print \$2; exit }' | tr ',' '\\n')",
             )
             append("; if [ -n \"\$SELF_UIDS\" ]; then")
             append("   for U in \$SELF_UIDS; do")

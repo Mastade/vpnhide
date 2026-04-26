@@ -125,7 +125,13 @@ class HookEntry : IXposedHookLoadPackage {
                             filtered[key] = stackedCopy
                         }
                     } else {
-                        if (stackedModified || stackedCopy !== value) modified = true
+                        // Only mark `modified` if sanitization actually
+                        // changed something. The previous condition also
+                        // tripped on `stackedCopy !== value`, which is
+                        // true after every successful clone — so any
+                        // non-empty stacked map forced a clear+putAll
+                        // even when no VPN data was present.
+                        if (stackedModified) modified = true
                         filtered[key] = stackedCopy
                     }
                 }
@@ -212,7 +218,10 @@ class HookEntry : IXposedHookLoadPackage {
             val content = "version=$version\nboot_id=$bootId\ntimestamp=$timestamp\n"
             val statusFile = File(HOOK_STATUS_FILE)
             statusFile.writeText(content)
-            statusFile.setReadable(true, false)
+            // Don't expose this file to untrusted apps — anti-tamper SDKs
+            // scan /data/system/ for known marker filenames. The VPN Hide
+            // app reads it via root (`suExec("cat ...")`), see
+            // DashboardData.kt — same pattern as vpnhide_uids.txt.
             HookLog.i("VpnHide: wrote hook status file (version=$version, boot_id=$bootId)")
         } catch (t: Throwable) {
             HookLog.e("VpnHide: failed to write hook status: ${t.message}")
@@ -230,7 +239,12 @@ class HookEntry : IXposedHookLoadPackage {
         val observer =
             object : android.os.FileObserver(
                 File(dir),
-                CREATE or CLOSE_WRITE or MOVED_TO or MODIFY,
+                // CLOSE_WRITE + MOVED_TO is enough: the writers we control
+                // either do a single short `> file` redirect (one write +
+                // close) or atomic-rename via `mv`. MODIFY would fire
+                // mid-write on multi-write writers and let the hook read
+                // a partially-populated file before the writer closes.
+                CREATE or CLOSE_WRITE or MOVED_TO,
             ) {
                 override fun onEvent(
                     event: Int,
