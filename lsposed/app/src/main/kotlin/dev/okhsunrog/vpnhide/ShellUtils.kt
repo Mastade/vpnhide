@@ -2,6 +2,7 @@ package dev.okhsunrog.vpnhide
 
 import android.util.Base64
 import android.util.Log
+import dev.okhsunrog.vpnhide.generated.IfaceLists
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -48,6 +49,31 @@ internal fun suExec(cmd: String): Pair<Int, String> =
     }
 
 internal suspend fun suExecAsync(cmd: String): Pair<Int, String> = withContext(Dispatchers.IO) { suExec(cmd) }
+
+/**
+ * Single source of truth for "is a VPN currently up?". Both the dashboard
+ * (sync, off the main thread already) and the diagnostics screen (suspend,
+ * via `withContext(Dispatchers.IO)`) call this so the answer doesn't drift
+ * — a previous version of the dashboard hard-coded a prefix list and missed
+ * names the codegen-driven `IfaceLists.isVpnIface` catches (e.g. `if<N>`
+ * from issue #86, `MyVPN`, `wg-client`).
+ */
+internal fun isVpnActiveBlocking(): Boolean {
+    val (exitCode, output) = suExec("ls /sys/class/net/ 2>/dev/null")
+    if (exitCode != 0) return false
+    val vpnIfaces =
+        output.lines().map { it.trim() }.filter { name -> IfaceLists.isVpnIface(name) }
+    if (vpnIfaces.isEmpty()) {
+        VpnHideLog.d(TAG, "isVpnActive: no VPN interfaces found")
+        return false
+    }
+    return vpnIfaces.any { iface ->
+        val (_, state) = suExec("cat /sys/class/net/$iface/operstate 2>/dev/null")
+        val up = state.trim() == "unknown" || state.trim() == "up"
+        VpnHideLog.d(TAG, "isVpnActive: $iface operstate=${state.trim()} up=$up")
+        up
+    }
+}
 
 internal fun cleanupStaleZygiskStatus(context: android.content.Context) {
     val statusFile = File(context.filesDir, ZYGISK_STATUS_FILE_NAME)

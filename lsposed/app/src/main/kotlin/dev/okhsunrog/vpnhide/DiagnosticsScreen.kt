@@ -78,22 +78,7 @@ internal data class CheckResults(
     val all get() = native + java
 }
 
-internal suspend fun isVpnActive(): Boolean =
-    withContext(Dispatchers.IO) {
-        val (exitCode, output) = suExec("ls /sys/class/net/ 2>/dev/null")
-        if (exitCode != 0) return@withContext false
-        val vpnIfaces =
-            output
-                .lines()
-                .map { it.trim() }
-                .filter { name -> IfaceLists.isVpnIface(name) }
-        if (vpnIfaces.isEmpty()) return@withContext false
-        vpnIfaces.any { iface ->
-            val (_, state) =
-                suExec("cat /sys/class/net/$iface/operstate 2>/dev/null")
-            state.trim() == "unknown" || state.trim() == "up"
-        }
-    }
+internal suspend fun isVpnActive(): Boolean = withContext(Dispatchers.IO) { isVpnActiveBlocking() }
 
 @Composable
 fun DiagnosticsScreen(
