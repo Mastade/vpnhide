@@ -172,8 +172,13 @@ internal fun ensureSelfInTargets(selfPkg: String): Boolean {
                 (hiddenExisting + selfPkg).sorted().joinToString("\n") + "\n"
         val b64 = Base64.encodeToString(body.toByteArray(), Base64.NO_WRAP)
         suExec(
+            // Mode 0640 + group=system: system_server reads via the group
+            // bit; untrusted apps fall to "other" and get EACCES.
+            // /data/system/ itself is mode 0775 traversable by untrusted —
+            // a plain 0644 here used to be enumerable + readable.
             "echo '$b64' | base64 -d > $SS_HIDDEN_PKGS_FILE" +
-                " && chmod 644 $SS_HIDDEN_PKGS_FILE" +
+                " && chmod 640 $SS_HIDDEN_PKGS_FILE" +
+                " && chown root:system $SS_HIDDEN_PKGS_FILE" +
                 " && chcon u:object_r:system_data_file:s0 $SS_HIDDEN_PKGS_FILE 2>/dev/null; true",
         )
         VpnHideLog.i(TAG, "ensureSelfInTargets: added $selfPkg to $SS_HIDDEN_PKGS_FILE")
@@ -203,7 +208,7 @@ internal fun ensureSelfInTargets(selfPkg: String): Boolean {
             append("     ; fi")
             append("   ; EXISTING2=\$(cat $SS_UIDS_FILE 2>/dev/null)")
             append(
-                "   ; echo \"\$EXISTING2\" | grep -q \"^\$U\$\" || { echo \"\$U\" >> $SS_UIDS_FILE; chmod 644 $SS_UIDS_FILE; chcon u:object_r:system_data_file:s0 $SS_UIDS_FILE 2>/dev/null; }",
+                "   ; echo \"\$EXISTING2\" | grep -q \"^\$U\$\" || { echo \"\$U\" >> $SS_UIDS_FILE; chmod 640 $SS_UIDS_FILE; chown root:system $SS_UIDS_FILE; chcon u:object_r:system_data_file:s0 $SS_UIDS_FILE 2>/dev/null; }",
             )
             append("   ; done")
             append("; fi")
