@@ -98,6 +98,8 @@ jobs:
           - android14-6.1
           - android15-6.6
           - android16-6.12
+    # Tag here mirrors `DDK_IMAGE_TAG` in kmod/build.py — bump both
+    # together so local builds and CI use the exact same image.
     container:
       image: ghcr.io/ylarod/ddk-min:${{ matrix.kmi }}-20260313
     env:
@@ -112,9 +114,7 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Build and package kernel module
-        run: |
-          cd kmod
-          python3 ./build-zip.py --kmi $KMI
+        run: python3 kmod/build.py --kmi $KMI --inside-container
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -156,7 +156,7 @@ jobs:
           UPDATE_JSON_URL: https://raw.githubusercontent.com/okhsunrog/vpnhide/main/update-json/update-zygisk.json
         run: |
           cd zygisk
-          python3 ./build-zip.py
+          python3 ./build.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

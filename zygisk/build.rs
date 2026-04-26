@@ -67,6 +67,14 @@ fn main() {
     println!("cargo:rustc-link-lib=static=shadowhook");
     println!("cargo:rustc-link-lib=log");
 
+    // Align ELF LOAD segments on 16 KiB so the cdylib loads cleanly on
+    // 16 KiB-page Android devices (Pixel 8 Pro on Android 16 and any
+    // future hardware that ships with 16 KiB pages by default). lld's
+    // 4 KiB default would otherwise produce a startup warning, and on
+    // future Androids may become a hard load failure.
+    // See: <https://developer.android.com/guide/practices/page-sizes>
+    println!("cargo:rustc-link-arg=-Wl,-z,max-page-size=16384");
+
     // shadowhook's inline-patching code emits a libcall to `__clear_cache`
     // (I-cache flush after rewriting instructions). Rust's own
     // `compiler_builtins` doesn't export that symbol on aarch64-android,
