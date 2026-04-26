@@ -98,10 +98,14 @@ fun AppPickerScreen(
         }
 
     // Merge cached app metadata with per-screen target flags. Cheap —
-    // runs whenever either side of the cache changes. Resets local
-    // `dirty` when a fresh snapshot arrives, since that means disk
-    // state just synced (Save finished, or user tapped Refresh).
+    // runs whenever either side of the cache changes.
+    //
+    // While `dirty` is true the user has unsaved checkbox edits — don't
+    // overwrite them with a fresh snapshot. Caches can refresh under us
+    // (ON_RESUME, another screen calling `TargetsCache.refresh()`) and
+    // silently dropping the edits is the worst outcome.
     LaunchedEffect(cachedApps, targets) {
+        if (dirty) return@LaunchedEffect
         val apps = cachedApps ?: return@LaunchedEffect
         val t = targets ?: return@LaunchedEffect
         val selfPkg = context.packageName
