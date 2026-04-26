@@ -63,6 +63,13 @@ note = "GRE tunnels"
 match = { contains = "vpn" }
 note = "catch-all for renamed clients (myvpn0, vpn-client, xvpn1, ...)"
 
+[[vpn]]
+match = { prefix = "if", suffix = "digits" }
+note = """Anonymous netdev / renamed tunnel using the kernel's default \
+naming pattern (e.g. `ip link set tun0 name if33` from issue #86). \
+Does NOT match `ifb<N>` — those are kernel intermediate-functional-block \
+traffic-shaping ifaces (different shape: `if` + letter, not + digit)."""
+
 
 # ── Test vectors ──────────────────────────────────────────────────────
 # Array of {name, is_vpn} fixtures. Codegen renders these into per-
@@ -198,12 +205,40 @@ is_vpn = false
 name = "rndis0"
 is_vpn = false
 
-# The renamed-tun trick from issue #86 — name-only matching cannot
-# catch this; here just confirms the matcher does not over-match on a
-# generic prefix.
+# The renamed-tun trick from issue #86 — caught by the
+# `if` + digits rule above.
 
 [[test]]
 name = "if33"
+is_vpn = true
+
+[[test]]
+name = "if0"
+is_vpn = true
+
+[[test]]
+name = "if99"
+is_vpn = true
+
+# `ifb<N>` is the kernel's intermediate-functional-block (traffic
+# shaping). Different shape (`if` + letter) — must NOT match.
+
+[[test]]
+name = "ifb0"
+is_vpn = false
+
+[[test]]
+name = "ifb1"
+is_vpn = false
+
+# `if` alone or with non-digit suffix — must NOT match.
+
+[[test]]
+name = "if"
+is_vpn = false
+
+[[test]]
+name = "if_inet6"
 is_vpn = false
 
 # Edge cases

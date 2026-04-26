@@ -131,6 +131,9 @@ static inline bool vpnhide_iface_is_vpn(const char *name)
 	/* catch-all for renamed clients (myvpn0, vpn-client, xvpn1, ...) */
 	if (vpnhide_iface_contains_ci(name, "vpn"))
 		return true;
+	/* Anonymous netdev / renamed tunnel using the kernel's default naming pattern (e.g. `ip link set tun0 name if33` from issue #86). Does NOT match `ifb<N>` — those are kernel intermediate-functional-block traffic-shaping ifaces (different shape: `if` + letter, not + digit). */
+	if (vpnhide_iface_starts_with_then_digits_ci(name, "if"))
+		return true;
 	return false;
 }
 
