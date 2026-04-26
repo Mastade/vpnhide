@@ -212,7 +212,10 @@ class HookEntry : IXposedHookLoadPackage {
             val content = "version=$version\nboot_id=$bootId\ntimestamp=$timestamp\n"
             val statusFile = File(HOOK_STATUS_FILE)
             statusFile.writeText(content)
-            statusFile.setReadable(true, false)
+            // Don't expose this file to untrusted apps — anti-tamper SDKs
+            // scan /data/system/ for known marker filenames. The VPN Hide
+            // app reads it via root (`suExec("cat ...")`), see
+            // DashboardData.kt — same pattern as vpnhide_uids.txt.
             HookLog.i("VpnHide: wrote hook status file (version=$version, boot_id=$bootId)")
         } catch (t: Throwable) {
             HookLog.e("VpnHide: failed to write hook status: ${t.message}")
