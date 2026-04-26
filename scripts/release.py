@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from changelog_lib import (  # type: ignore[import-not-found]
     REPO_ROOT,
+    delete_fragment_files,
     load_fragments,
     load_json,
     rotate_fragments_into_history,
@@ -60,10 +61,21 @@ def parse_version(raw: str) -> tuple[str, int]:
 
 
 def patch_file(path: Path, replacements: list[tuple[re.Pattern[str], str]]) -> None:
+    """Apply each pattern → replacement once.
+
+    Hard-fails if any pattern doesn't match. Silently leaving a stale
+    version in some file because the format drifted from what the regex
+    expects is exactly the failure mode we want to catch loudly.
+    """
     text = path.read_text(encoding="utf-8")
     new_text = text
     for pattern, replacement in replacements:
-        new_text = pattern.sub(replacement, new_text, count=1)
+        new_text, n = pattern.subn(replacement, new_text, count=1)
+        if n == 0:
+            raise SystemExit(
+                f"error: pattern {pattern.pattern!r} did not match in {path}. "
+                f"File format probably changed — update release.py."
+            )
     if new_text != text:
         path.write_text(new_text, encoding="utf-8")
 
@@ -139,10 +151,13 @@ def main() -> int:
             console.print(f"[red]missing:[/red] {f.relative_to(REPO_ROOT)}")
             return 1
 
-    # Changelog: rotate fragments into history, then delete them.
+    # Changelog: rotate fragments into history, persist, then delete the
+    # fragment files. Order matters — if save_json/write_md fails, the
+    # fragments are still on disk and the run can be retried safely.
     rotate_fragments_into_history(data, fragments, version)
     save_json(data)
     write_md(data)
+    delete_fragment_files(fragments)
     console.print(
         f"  [green]✓[/green] changelog: {len(fragments)} fragment(s) → history[0] as v{version}",
     )

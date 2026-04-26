@@ -86,14 +86,43 @@ jobs:
         run: |
           cd zygisk && cargo fmt --check
           cd ../lsposed/native && cargo fmt --check
+      # `--tests` so generated test modules are also linted
+      # (catches `bool_assert_comparison`-style regressions in
+      # codegen output).
       - name: clippy (zygisk)
-        run: cd zygisk && cargo ndk -t arm64-v8a clippy -- -D warnings
+        run: cd zygisk && cargo ndk -t arm64-v8a clippy --tests -- -D warnings
       - name: clippy (lsposed native)
-        run: cd lsposed/native && cargo ndk -t arm64-v8a clippy -- -D warnings
+        run: cd lsposed/native && cargo ndk -t arm64-v8a clippy --tests -- -D warnings
       - name: cargo test (zygisk)
         run: cd zygisk && cargo test
       - name: cargo test (lsposed native)
         run: cd lsposed/native && cargo test
+
+      # Shell — module-side scripts (Magisk/KSU) and host-side dev tooling.
+      # shellcheck is preinstalled in the CI image (apt). The list is
+      # explicit so we don't accidentally pick up vendored .sh from
+      # zygisk/third_party.
+      - name: shellcheck
+        # SC2034: `SKIPUNZIP` and the `for i in seq …` counters look unused
+        #         to shellcheck — Magisk reads SKIPUNZIP externally, the
+        #         counters are loop iterators we don't read by name.
+        # SC3043: `local` is "not POSIX" but Android's /system/bin/sh
+        #         (mksh on Pixel) supports it, and our module-side
+        #         scripts always run there.
+        # The inline `apt-get install` is a one-job fallback for the
+        # window between this PR landing and the next ci-image rebuild
+        # (the Dockerfile bake also adds shellcheck). After the rebuild
+        # this no-ops in <1s.
+        run: |
+          if ! command -v shellcheck >/dev/null; then
+            apt-get update -qq && apt-get install -y --no-install-recommends shellcheck >/dev/null
+          fi
+          shellcheck -x -e SC2034,SC3043 \
+            kmod/module/customize.sh kmod/module/post-fs-data.sh kmod/module/service.sh \
+            zygisk/module/customize.sh zygisk/module/service.sh \
+            portshide/module/customize.sh portshide/module/service.sh \
+            portshide/module/uninstall.sh portshide/module/vpnhide_ports_apply.sh \
+            scripts/clean-device.sh scripts/update-json.sh
 
       # C (kernel module)
       - name: clang-format
@@ -250,11 +279,14 @@ jobs:
               -keyalg RSA -keysize 4096 -validity 365 \
               -dname "CN=vpnhide-fork-ci, O=vpnhide, C=US"
           fi
-          cat > "$GITHUB_WORKSPACE/lsposed/keystore.properties" <<EOF
-          password=$KEYSTORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          storeFile=$KEYSTORE_PATH
-          EOF
+          # Build via printf — `%s` swallows the value verbatim with no
+          # shell expansion of $, backticks, backslashes, or `!`. Heredoc
+          # without single-quoted EOF would re-expand each line.
+          {
+            printf 'password=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'storeFile=%s\n' "$KEYSTORE_PATH"
+          } > "$GITHUB_WORKSPACE/lsposed/keystore.properties"
 
       # Release tags get the full assembleRelease (R8/ProGuard, signed APK
       # ready for the GitHub release). PRs and main pushes get assembleDebug
