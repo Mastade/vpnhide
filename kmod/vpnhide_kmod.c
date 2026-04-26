@@ -404,12 +404,18 @@ static struct kretprobe sock_ioctl_krp = {
 /*                                                                    */
 /*  rtnl_fill_ifinfo fills one interface's data into a netlink skb    */
 /*  during a RTM_GETLINK dump. If the device is a VPN and the caller  */
-/*  is a target UID, we make it return -EMSGSIZE which tells the      */
-/*  dump iterator to skip this entry (it thinks the skb is full for   */
-/*  this entry and moves on, but the entry never gets added).         */
+/*  is a target UID, we hide the entry from the dump.                 */
+/*                                                                    */
+/*  We can't return -EMSGSIZE (causes infinite retry of the same      */
+/*  entry on android14-6.1, hanging RTM_GETLINK dumps). Instead use   */
+/*  the same skb_trim approach as inet6_fill_ifaddr below: save       */
+/*  skb->len before the fill, trim back on return, return 0. The      */
+/*  iterator then sees a successful entry of zero bytes and advances. */
 /* ================================================================== */
 
 struct rtnl_fill_data {
+	struct sk_buff *skb;
+	unsigned int saved_len;
 	bool should_filter;
 };
 
@@ -435,6 +441,8 @@ static int rtnl_fill_entry(struct kretprobe_instance *ri, struct pt_regs *regs)
 	 * belt-and-suspenders — same rationale as inet6_fill_entry. */
 	rcu_read_lock();
 	if (dev && is_vpn_ifname(dev->name)) {
+		data->skb = (struct sk_buff *)regs->regs[0];
+		data->saved_len = data->skb ? data->skb->len : 0;
 		data->should_filter = true;
 		vpnhide_dbg(
 			"rtnl_fill_entry: uid=%u target=1 iface=%s -> filter\n",
@@ -454,11 +462,14 @@ static int rtnl_fill_ret(struct kretprobe_instance *ri, struct pt_regs *regs)
 {
 	struct rtnl_fill_data *data = (void *)ri->data;
 
-	if (data->should_filter) {
-		vpnhide_dbg("rtnl_fill_ret: returning -EMSGSIZE\n");
-		regs_set_return_value(regs, -EMSGSIZE);
-	}
+	if (!data->should_filter || !data->skb)
+		return 0;
 
+	vpnhide_dbg("rtnl_fill_ret: trimming skb %u -> %u\n", data->skb->len,
+		    data->saved_len);
+	/* Undo whatever the fill function wrote to the skb */
+	skb_trim(data->skb, data->saved_len);
+	regs_set_return_value(regs, 0);
 	return 0;
 }
 
