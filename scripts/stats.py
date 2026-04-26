@@ -22,9 +22,7 @@ def github_token() -> str | None:
     if token := os.environ.get("GITHUB_TOKEN"):
         return token
     try:
-        out = subprocess.run(
-            ["gh", "auth", "token"], capture_output=True, text=True, check=True
-        )
+        out = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, check=True)
         return out.stdout.strip() or None
     except (FileNotFoundError, subprocess.CalledProcessError):
         return None
@@ -34,9 +32,7 @@ headers = {"Accept": "application/vnd.github+json"}
 if token := github_token():
     headers["Authorization"] = f"Bearer {token}"
 
-resp = httpx.get(
-    "https://api.github.com/repos/okhsunrog/vpnhide/releases", headers=headers
-)
+resp = httpx.get("https://api.github.com/repos/okhsunrog/vpnhide/releases", headers=headers)
 resp.raise_for_status()
 releases = resp.json()
 
@@ -53,7 +49,13 @@ for release in releases:
     total = sum(a["download_count"] for a in assets)
     grand_total += total
 
-    table = Table(title=f"{release['tag_name']}  ({total} downloads)", title_style="bold", show_header=False, box=None, padding=(0, 1))
+    table = Table(
+        title=f"{release['tag_name']}  ({total} downloads)",
+        title_style="bold",
+        show_header=False,
+        box=None,
+        padding=(0, 1),
+    )
     table.add_column("Asset", style="cyan")
     table.add_column("Count", justify="right", style="yellow")
     table.add_column("Bar", style="green", no_wrap=True)

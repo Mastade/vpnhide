@@ -45,8 +45,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from build_lib import get_build_version, make_zip, version_sort_key  # type: ignore[import-not-found]
-
+from build_lib import (  # type: ignore[import-not-found]
+    get_build_version,
+    make_zip,
+    version_sort_key,
+)
 
 # Module file name on disk after `make`.
 KMOD_KO = "vpnhide_kmod.ko"
@@ -128,13 +131,9 @@ def native_build_one(
 
     module_prop = staging / "module.prop"
     content = module_prop.read_text(encoding="utf-8")
-    content = re.sub(
-        r"^version=.*", f"version=v{build_version}", content, flags=re.MULTILINE
-    )
+    content = re.sub(r"^version=.*", f"version=v{build_version}", content, flags=re.MULTILINE)
     if re.search(r"^gkiVariant=", content, flags=re.MULTILINE):
-        content = re.sub(
-            r"^gkiVariant=.*", f"gkiVariant={kmi}", content, flags=re.MULTILINE
-        )
+        content = re.sub(r"^gkiVariant=.*", f"gkiVariant={kmi}", content, flags=re.MULTILINE)
     else:
         content = content.rstrip() + f"\ngkiVariant={kmi}\n"
     update_json_url = (
@@ -219,9 +218,7 @@ def find_runtime() -> tuple[str, bool]:
     sys.exit(1)
 
 
-def container_build_one(
-    runtime: str, is_podman: bool, repo_root: Path, kmi: str
-) -> None:
+def container_build_one(runtime: str, is_podman: bool, repo_root: Path, kmi: str) -> None:
     image = f"ghcr.io/ylarod/ddk-min:{kmi}-{DDK_IMAGE_TAG}"
     mount_spec = f"{repo_root}:/work"
     cmd = [runtime, "run", "--rm"]
@@ -314,10 +311,7 @@ def main() -> int:
     parser.add_argument(
         "--kdir",
         type=str,
-        help=(
-            "Kernel source directory (overrides KDIR/KERNEL_SRC). Implies "
-            "native mode."
-        ),
+        help=("Kernel source directory (overrides KDIR/KERNEL_SRC). Implies native mode."),
     )
     parser.add_argument(
         "--clang-dir",

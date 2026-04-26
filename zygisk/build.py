@@ -18,7 +18,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from build_lib import get_build_version, make_zip, version_sort_key  # type: ignore[import-not-found]
+from build_lib import (  # type: ignore[import-not-found]
+    get_build_version,
+    make_zip,
+    version_sort_key,
+)
 
 
 def main() -> int:

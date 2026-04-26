@@ -103,6 +103,10 @@ CI runs the same checks. See [.github/workflows/ci.yml](../.github/workflows/ci.
 python3 scripts/codegen-interfaces.py
 git diff --quiet  # must be clean
 
+# Python (ruff, config in pyproject.toml). uvx runs without installing anything global.
+uvx ruff format --check
+uvx ruff check
+
 # Rust
 cd zygisk && cargo fmt --check && cargo ndk -t arm64-v8a clippy -- -D warnings
 cd ../lsposed/native && cargo fmt --check && cargo ndk -t arm64-v8a clippy -- -D warnings
@@ -116,8 +120,7 @@ gcc -O2 -Wall -Werror -o /tmp/test_iface_lists kmod/test_iface_lists.c && /tmp/t
 
 # Kotlin
 ktlint "lsposed/**/*.kt"
-cd lsposed && ./gradlew --no-daemon :app:lint
-cd lsposed && ./gradlew --no-daemon :app:testDebugUnitTest
+cd lsposed && ./gradlew :app:lint :app:testDebugUnitTest
 ```
 
 ## Build versions
