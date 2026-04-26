@@ -13,7 +13,6 @@ import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifconf
 import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifflags
 import dev.okhsunrog.vpnhide.checks.checkIoctlSiocgifmtu
 import dev.okhsunrog.vpnhide.checks.checkNetlinkGetlink
-import dev.okhsunrog.vpnhide.checks.checkNetlinkGetlinkRecv
 import dev.okhsunrog.vpnhide.checks.checkNetlinkGetroute
 import dev.okhsunrog.vpnhide.checks.checkProcNetDev
 import dev.okhsunrog.vpnhide.checks.checkProcNetFibTrie
@@ -1142,7 +1141,6 @@ private fun runNativeProtectionCheck(): NativeResult {
             "ioctl_conf" to { checkIoctlSiocgifconf() },
             "getifaddrs" to { checkGetifaddrs() },
             "netlink_getlink" to { checkNetlinkGetlink() },
-            "netlink_getlink_recv" to { checkNetlinkGetlinkRecv() },
             "netlink_getroute" to { checkNetlinkGetroute() },
             "proc_route" to { checkProcNetRoute() },
             "proc_ipv6_route" to { checkProcNetIpv6Route() },
