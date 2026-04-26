@@ -149,7 +149,7 @@ fn check_ioctl_siocgifflags() -> CheckOutput {
         let name = b"tun0\0";
         ifr.ifr_name[..name.len()].copy_from_slice(&name.map(|b| b as libc::c_char));
 
-        let ret = libc::ioctl(fd, libc::SIOCGIFFLAGS as i32, &ifr);
+        let ret = libc::ioctl(fd, libc::SIOCGIFFLAGS as _, &ifr);
         let err = last_os_errno();
         libc::close(fd);
 
@@ -194,7 +194,7 @@ fn check_ioctl_siocgifmtu() -> CheckOutput {
         let name = b"tun0\0";
         ifr.ifr_name[..name.len()].copy_from_slice(&name.map(|b| b as libc::c_char));
 
-        let ret = libc::ioctl(fd, libc::SIOCGIFMTU as i32, &ifr);
+        let ret = libc::ioctl(fd, libc::SIOCGIFMTU as _, &ifr);
         let err = last_os_errno();
         libc::close(fd);
 
@@ -230,7 +230,7 @@ fn check_ioctl_siocgifconf() -> CheckOutput {
         ifc.ifc_len = buf.len() as libc::c_int;
         ifc.ifc_ifcu.ifcu_buf = buf.as_mut_ptr().cast();
 
-        if libc::ioctl(fd, libc::SIOCGIFCONF as i32, &mut ifc) < 0 {
+        if libc::ioctl(fd, libc::SIOCGIFCONF as _, &mut ifc) < 0 {
             let e = last_os_error();
             libc::close(fd);
             return CheckOutput::fail(format!("ioctl error: {e}"));
@@ -302,7 +302,7 @@ fn check_proc_file(path: &str) -> CheckOutput {
                     continue;
                 }
                 total += 1;
-                if VPN_PREFIXES.iter().any(|p| line.contains(p)) {
+                if line.split_ascii_whitespace().any(is_vpn_iface) {
                     vpn_lines.push(line[..line.len().min(80)].to_string());
                 }
             }
