@@ -120,7 +120,7 @@ gcc -O2 -Wall -Werror -o /tmp/test_iface_lists kmod/test_iface_lists.c && /tmp/t
 
 # Kotlin
 ktlint "lsposed/**/*.kt"
-cd lsposed && ./gradlew :app:lint :app:testDebugUnitTest
+cd lsposed && ./gradlew :app:lintDebug :app:testDebugUnitTest
 ```
 
 ## Build versions
