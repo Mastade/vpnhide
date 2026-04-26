@@ -19,9 +19,12 @@ jobs:
     #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
 
     runs-on: ubuntu-latest
+    # `pull-requests: write` lets Claude post the review summary and
+    # inline comments — read-only was a no-op for us. No `contents:
+    # write`: Claude advises, doesn't commit.
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       issues: read
       id-token: write
 
