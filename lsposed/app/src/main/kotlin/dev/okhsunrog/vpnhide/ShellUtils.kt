@@ -149,9 +149,16 @@ internal fun ensureSelfInTargets(selfPkg: String): Boolean {
 
     addIfMissing(KMOD_TARGETS, "/data/adb/vpnhide_kmod")
     addIfMissing(ZYGISK_TARGETS, "/data/adb/vpnhide_zygisk")
-    // Zygisk reads targets from module dir (via get_module_dir() fd), not from persistent dir.
-    // Must sync after adding self, otherwise zygisk won't hook us on next launch.
-    suExec("[ -d $ZYGISK_MODULE_DIR ] && cp $ZYGISK_TARGETS $ZYGISK_MODULE_TARGETS 2>/dev/null; true")
+    // Zygisk reads targets from module dir (via get_module_dir() fd), not
+    // from persistent dir. Must sync after adding self, otherwise zygisk
+    // won't hook us on next launch. Surface real `cp` failures (read-only
+    // mount, SELinux denial) — silent failure here used to manifest as
+    // "I edited targets in the app but zygisk didn't pick it up".
+    val (cpExit, cpOut) =
+        suExec("if [ -d $ZYGISK_MODULE_DIR ]; then cp $ZYGISK_TARGETS $ZYGISK_MODULE_TARGETS 2>&1; fi")
+    if (cpExit != 0 && cpOut.isNotBlank()) {
+        VpnHideLog.w(TAG, "ensureSelfInTargets: zygisk module dir copy failed (exit=$cpExit): ${cpOut.trim()}")
+    }
     suExec("mkdir -p /data/adb/vpnhide_lsposed")
     addIfMissing(LSPOSED_TARGETS, null)
 
