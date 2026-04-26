@@ -389,12 +389,20 @@ private fun buildSaveCommand(
     }
 
     // Resolve lsposed UIDs -> /data/system/vpnhide_uids.txt
+    // Mode 0640 + group=system: system_server reads via the group bit;
+    // untrusted apps get EACCES because /data/system/ is mode 0775 (parent
+    // is traversable, file's "other" bits decide). Prevents apps from
+    // enumerating the target UID list to fingerprint vpnhide.
     if (lsposedPkgs.isNotEmpty()) {
         parts += buildUidResolver(lsposedPkgs, SS_UIDS_FILE)
-        parts += "chmod 644 $SS_UIDS_FILE 2>/dev/null"
+        parts += "chmod 640 $SS_UIDS_FILE 2>/dev/null"
+        parts += "chown root:system $SS_UIDS_FILE 2>/dev/null"
         parts += "chcon u:object_r:system_data_file:s0 $SS_UIDS_FILE 2>/dev/null"
     } else {
-        parts += "echo > $SS_UIDS_FILE 2>/dev/null; true"
+        parts +=
+            "echo > $SS_UIDS_FILE 2>/dev/null" +
+            " && chmod 640 $SS_UIDS_FILE 2>/dev/null" +
+            " && chown root:system $SS_UIDS_FILE 2>/dev/null; true"
     }
 
     return parts.joinToString(" ; ")

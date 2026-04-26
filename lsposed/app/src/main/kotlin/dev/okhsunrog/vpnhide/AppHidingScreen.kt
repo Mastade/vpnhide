@@ -382,21 +382,29 @@ private fun buildHidingSaveCommand(
     val parts = mutableListOf<String>()
 
     // Hidden list: package names, one per line.
+    // Mode 0640 + group=system: system_server reads via the group bit;
+    // untrusted apps get EACCES because /data/system/ is mode 0775 (the
+    // file's "other" bits decide reachability). Prevents apps from
+    // enumerating the hidden-package list to fingerprint vpnhide.
     val hiddenBody = "$header\n" + hiddenPkgs.joinToString("\n") + if (hiddenPkgs.isNotEmpty()) "\n" else ""
     val hiddenB64 = encode(hiddenBody)
     parts +=
-        "echo '$hiddenB64' | base64 -d > $SS_HIDDEN_PKGS_FILE && chmod 644 $SS_HIDDEN_PKGS_FILE" +
+        "echo '$hiddenB64' | base64 -d > $SS_HIDDEN_PKGS_FILE" +
+        " && chmod 640 $SS_HIDDEN_PKGS_FILE" +
+        " && chown root:system $SS_HIDDEN_PKGS_FILE" +
         " && chcon u:object_r:system_data_file:s0 $SS_HIDDEN_PKGS_FILE 2>/dev/null; true"
 
-    // Observer list: resolved UIDs.
+    // Observer list: resolved UIDs. Same 0640 root:system rationale.
     if (observerPkgs.isNotEmpty()) {
         parts += buildHidingUidResolver(observerPkgs, SS_OBSERVER_UIDS_FILE)
-        parts += "chmod 644 $SS_OBSERVER_UIDS_FILE 2>/dev/null"
+        parts += "chmod 640 $SS_OBSERVER_UIDS_FILE 2>/dev/null"
+        parts += "chown root:system $SS_OBSERVER_UIDS_FILE 2>/dev/null"
         parts += "chcon u:object_r:system_data_file:s0 $SS_OBSERVER_UIDS_FILE 2>/dev/null; true"
     } else {
         parts +=
             "echo > $SS_OBSERVER_UIDS_FILE 2>/dev/null;" +
-            " chmod 644 $SS_OBSERVER_UIDS_FILE 2>/dev/null;" +
+            " chmod 640 $SS_OBSERVER_UIDS_FILE 2>/dev/null;" +
+            " chown root:system $SS_OBSERVER_UIDS_FILE 2>/dev/null;" +
             " chcon u:object_r:system_data_file:s0 $SS_OBSERVER_UIDS_FILE 2>/dev/null; true"
     }
 

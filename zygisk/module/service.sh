@@ -69,15 +69,34 @@ ${expanded}"; fi
 mkdir -p /data/adb/vpnhide_lsposed 2>/dev/null
 if [ -f "$LSPOSED_TARGETS" ]; then
     LSPOSED_UIDS="$(resolve_uids "$LSPOSED_TARGETS")"
+    # Mode 0640 + group=system: system_server (UID 1000, in group `system`)
+    # reads via the group bit; untrusted apps fall to "other" and get EACCES.
+    # Default 0644 was a fingerprint vector — `/data/system/` itself is mode
+    # 0775 traversable by untrusted, so any o+r file is enumerable + readable.
     if [ -n "$LSPOSED_UIDS" ]; then
         echo "$LSPOSED_UIDS" > "$SS_UIDS_FILE"
-        chmod 644 "$SS_UIDS_FILE"
+        chmod 640 "$SS_UIDS_FILE"
+        chown root:system "$SS_UIDS_FILE"
         chcon u:object_r:system_data_file:s0 "$SS_UIDS_FILE" 2>/dev/null
         count="$(echo "$LSPOSED_UIDS" | wc -l)"
         log -t vpnhide "zygisk: wrote $count lsposed UIDs to $SS_UIDS_FILE"
     else
         echo > "$SS_UIDS_FILE"
-        chmod 644 "$SS_UIDS_FILE"
+        chmod 640 "$SS_UIDS_FILE"
+        chown root:system "$SS_UIDS_FILE"
         log -t vpnhide "zygisk: no lsposed UIDs resolved"
     fi
 fi
+
+# Migrate pre-PR files written by older versions with mode 0644: any
+# vpnhide_*.txt the lsposed app may have left in /data/system/. Touch
+# only files that already exist; don't create new ones here.
+for f in "$SS_UIDS_FILE" \
+         /data/system/vpnhide_hidden_pkgs.txt \
+         /data/system/vpnhide_observer_uids.txt; do
+    if [ -f "$f" ]; then
+        chmod 640 "$f"
+        chown root:system "$f"
+        chcon u:object_r:system_data_file:s0 "$f" 2>/dev/null
+    fi
+done
