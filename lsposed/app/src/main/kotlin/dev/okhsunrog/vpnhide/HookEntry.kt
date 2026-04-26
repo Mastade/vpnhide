@@ -125,7 +125,13 @@ class HookEntry : IXposedHookLoadPackage {
                             filtered[key] = stackedCopy
                         }
                     } else {
-                        if (stackedModified || stackedCopy !== value) modified = true
+                        // Only mark `modified` if sanitization actually
+                        // changed something. The previous condition also
+                        // tripped on `stackedCopy !== value`, which is
+                        // true after every successful clone — so any
+                        // non-empty stacked map forced a clear+putAll
+                        // even when no VPN data was present.
+                        if (stackedModified) modified = true
                         filtered[key] = stackedCopy
                     }
                 }
