@@ -181,9 +181,12 @@ internal fun ensureSelfInTargets(selfPkg: String): Boolean {
     // the existing file content.
     val uidCmd =
         buildString {
+            // Literal field match via awk — grep would treat dots in
+            // `selfPkg` as regex wildcards.
             append("ALL_PKGS=\"\$(pm list packages -U --user all 2>/dev/null)\"")
             append(
-                "; SELF_UIDS=\$(echo \"\$ALL_PKGS\" | grep '^package:$selfPkg ' | sed 's/.*uid://' | tr ',' '\\n')",
+                "; SELF_UIDS=\$(echo \"\$ALL_PKGS\" | awk -v p=\"package:$selfPkg\" " +
+                    "'\$1 == p { sub(/uid:/, \"\", \$2); print \$2; exit }' | tr ',' '\\n')",
             )
             append("; if [ -n \"\$SELF_UIDS\" ]; then")
             append("   for U in \$SELF_UIDS; do")

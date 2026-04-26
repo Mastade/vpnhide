@@ -993,8 +993,13 @@ internal fun loadDashboardState(
     // profile (PackageManager.getInstalledApplications is per-user). A
     // Save from a profile that doesn't see all the targets would silently
     // drop them. Recommend uninstalling everywhere except the main profile.
+    // Literal field match via awk — grep would treat dots in `selfPkg`
+    // as regex wildcards.
     val (_, selfPmRaw) =
-        suExec("pm list packages -U --user all 2>/dev/null | grep '^package:$selfPkg '")
+        suExec(
+            "pm list packages -U --user all 2>/dev/null | " +
+                "awk -v p=\"package:$selfPkg\" '\$1 == p'",
+        )
     val selfUidCount =
         selfPmRaw
             .lines()
