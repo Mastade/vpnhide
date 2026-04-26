@@ -117,8 +117,8 @@ def parse_fragment(path: Path) -> dict:
     if date_match.start() > en_match.start():
         raise ValueError(f"{path.name}: date line must appear before the language sections")
 
-    en_body = text[en_match.end():ru_match.start()].strip()
-    ru_body = text[ru_match.end():].strip()
+    en_body = text[en_match.end() : ru_match.start()].strip()
+    ru_body = text[ru_match.end() :].strip()
     if not en_body:
         raise ValueError(f"{path.name}: empty English section")
     if not ru_body:

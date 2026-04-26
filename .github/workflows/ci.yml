@@ -38,6 +38,17 @@ jobs:
       - name: Mark workspace safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      # Python lint + format (ruff). Fast (~100 ms on 1800 LoC) so it
+      # runs first — fails before the slow Rust/Gradle steps.
+      - name: ruff format
+        uses: astral-sh/ruff-action@v4
+        with:
+          args: format --check
+      - name: ruff check
+        uses: astral-sh/ruff-action@v4
+        with:
+          args: check
+
       # Cache cargo deps + target dirs for clippy/test. Same key shape as
       # zygisk + lsposed jobs — when those run on the same Cargo.lock the
       # restore-keys fallback shares warm artifacts across jobs.

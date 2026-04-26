@@ -464,7 +464,7 @@ def emit_rust(rules: list[Rule], tests: list[TestVector]) -> str:
         expected = "true" if t.is_vpn else "false"
         lines.append(
             f"        assert_eq!(matches_vpn({rust_byte_lit(t.name)}), {expected}, "
-            f"\"matches_vpn({t.name!r})\");"
+            f'"matches_vpn({t.name!r})");'
         )
     lines.append("    }")
     lines.append("}")

@@ -114,8 +114,7 @@ def main() -> int:
     for past in data.get("history", []):
         if past.get("version") == version:
             console.print(
-                f"[red]error:[/red] v{version} already exists in history[]. "
-                "Pick a new version.",
+                f"[red]error:[/red] v{version} already exists in history[]. Pick a new version.",
             )
             return 1
 
@@ -169,11 +168,14 @@ def main() -> int:
 
     console.print()
     console.print("[bold]Next steps:[/bold]")
-    console.print(f"  git commit -am \"chore: release v{version}\"")
+    console.print(f'  git commit -am "chore: release v{version}"')
     console.print(f"  git tag v{version} && git push && git push origin v{version}")
-    console.print("  # CI builds artifacts and creates a DRAFT release — review on the Releases page, click Publish")
+    console.print(
+        "  # CI builds artifacts and creates a DRAFT release — "
+        "review on the Releases page, click Publish"
+    )
     console.print("  ./scripts/update-json.sh")
-    console.print(f"  git commit -am \"chore: update-json for v{version}\"")
+    console.print(f'  git commit -am "chore: update-json for v{version}"')
     console.print("  git push")
     return 0
 
