@@ -602,6 +602,48 @@ fn apply_filter(data: &mut [u8], kind: ProcNetFile) -> usize {
     }
 }
 
+/// Walk `getifaddrs()` with the `IN_GETIFADDRS` re-entrancy guard set,
+/// invoking `f` for each entry whose `ifa_name` matches a VPN interface.
+///
+/// The guard prevents our ioctl hook from filtering while libc's
+/// getifaddrs calls ioctl(SIOCGIFFLAGS) internally. Returns `false` if
+/// the real getifaddrs() symbol couldn't be resolved or the call failed;
+/// the closure is then never invoked.
+unsafe fn walk_getifaddrs_vpn(mut f: impl FnMut(&core::ffi::CStr, &libc::ifaddrs)) -> bool {
+    let Some(real) = real_getifaddrs() else {
+        return false;
+    };
+
+    let mut ifap: *mut libc::ifaddrs = core::ptr::null_mut();
+
+    IN_GETIFADDRS.with(|flag| flag.set(true));
+    let rc = unsafe { real(&mut ifap) };
+    IN_GETIFADDRS.with(|flag| flag.set(false));
+
+    if rc != 0 || ifap.is_null() {
+        return false;
+    }
+
+    let mut cur = ifap;
+    while !cur.is_null() {
+        let entry = unsafe { &*cur };
+        cur = entry.ifa_next;
+
+        if entry.ifa_name.is_null() {
+            continue;
+        }
+        let name = unsafe { core::ffi::CStr::from_ptr(entry.ifa_name) };
+        if !crate::filter::is_vpn_iface_cstr(name) {
+            continue;
+        }
+
+        f(name, entry);
+    }
+
+    unsafe { libc::freeifaddrs(ifap) };
+    true
+}
+
 /// Collect IPv4 and IPv6 addresses of VPN interfaces by calling the
 /// real (unhooked) `getifaddrs`. Sets `IN_GETIFADDRS` guard so our
 /// ioctl hook doesn't interfere with libc's internal SIOCGIFFLAGS calls.
@@ -618,55 +660,30 @@ fn collect_vpn_addrs() -> (
     let mut n4 = 0usize;
     let mut n6 = 0usize;
 
-    let Some(real) = real_getifaddrs() else {
-        return (addrs4, n4, addrs6, n6);
-    };
-
-    let mut ifap: *mut libc::ifaddrs = core::ptr::null_mut();
-
-    // Guard: prevent our ioctl hook from filtering while libc's
-    // getifaddrs calls ioctl(SIOCGIFFLAGS) internally.
-    IN_GETIFADDRS.with(|f| f.set(true));
-    let rc = unsafe { real(&mut ifap) };
-    IN_GETIFADDRS.with(|f| f.set(false));
-
-    if rc != 0 || ifap.is_null() {
-        return (addrs4, n4, addrs6, n6);
+    unsafe {
+        walk_getifaddrs_vpn(|_name, entry| {
+            if entry.ifa_addr.is_null() {
+                return;
+            }
+            let family = (*entry.ifa_addr).sa_family as c_int;
+            if family == libc::AF_INET && n4 < MAX_VPN_ADDRS {
+                let sin = &*(entry.ifa_addr as *const libc::sockaddr_in);
+                addrs4[n4] = sin.sin_addr.s_addr;
+                n4 += 1;
+            } else if family == libc::AF_INET6 && n6 < MAX_VPN_ADDRS {
+                let sin6 = &*(entry.ifa_addr as *const libc::sockaddr_in6);
+                let bytes = sin6.sin6_addr.s6_addr;
+                // Convert to 4×u32 matching /proc/net/tcp6's %08X format.
+                addrs6[n6] = [
+                    u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+                    u32::from_ne_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+                    u32::from_ne_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
+                    u32::from_ne_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+                ];
+                n6 += 1;
+            }
+        });
     }
-
-    let mut cur = ifap;
-    while !cur.is_null() {
-        let entry = unsafe { &*cur };
-        cur = entry.ifa_next;
-
-        if entry.ifa_name.is_null() || entry.ifa_addr.is_null() {
-            continue;
-        }
-        let name = unsafe { core::ffi::CStr::from_ptr(entry.ifa_name) };
-        if !crate::filter::is_vpn_iface_cstr(name) {
-            continue;
-        }
-
-        let family = unsafe { (*entry.ifa_addr).sa_family } as c_int;
-        if family == libc::AF_INET && n4 < MAX_VPN_ADDRS {
-            let sin = unsafe { &*(entry.ifa_addr as *const libc::sockaddr_in) };
-            addrs4[n4] = sin.sin_addr.s_addr;
-            n4 += 1;
-        } else if family == libc::AF_INET6 && n6 < MAX_VPN_ADDRS {
-            let sin6 = unsafe { &*(entry.ifa_addr as *const libc::sockaddr_in6) };
-            let bytes = sin6.sin6_addr.s6_addr;
-            // Convert to 4×u32 matching /proc/net/tcp6's %08X format.
-            addrs6[n6] = [
-                u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
-                u32::from_ne_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
-                u32::from_ne_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
-                u32::from_ne_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
-            ];
-            n6 += 1;
-        }
-    }
-
-    unsafe { libc::freeifaddrs(ifap) };
 
     (addrs4, n4, addrs6, n6)
 }
@@ -836,41 +853,19 @@ fn collect_vpn_iface_indices() -> ([u32; crate::filter::MAX_VPN_ADDRS], usize) {
     let mut indices = [0u32; MAX_VPN_ADDRS];
     let mut n = 0usize;
 
-    let Some(real) = real_getifaddrs() else {
-        return (indices, 0);
-    };
-
-    let mut ifap: *mut libc::ifaddrs = core::ptr::null_mut();
-
-    IN_GETIFADDRS.with(|f| f.set(true));
-    let rc = unsafe { real(&mut ifap) };
-    IN_GETIFADDRS.with(|f| f.set(false));
-
-    if rc != 0 || ifap.is_null() {
-        return (indices, 0);
+    unsafe {
+        walk_getifaddrs_vpn(|_name, entry| {
+            if n >= MAX_VPN_ADDRS {
+                return;
+            }
+            let idx = libc::if_nametoindex(entry.ifa_name);
+            if idx == 0 || indices[..n].contains(&idx) {
+                return;
+            }
+            indices[n] = idx;
+            n += 1;
+        });
     }
 
-    let mut cur = ifap;
-    while !cur.is_null() && n < MAX_VPN_ADDRS {
-        let entry = unsafe { &*cur };
-        cur = entry.ifa_next;
-
-        if entry.ifa_name.is_null() {
-            continue;
-        }
-        let name = unsafe { core::ffi::CStr::from_ptr(entry.ifa_name) };
-        if !crate::filter::is_vpn_iface_cstr(name) {
-            continue;
-        }
-
-        let idx = unsafe { libc::if_nametoindex(entry.ifa_name) };
-        if idx == 0 || indices[..n].contains(&idx) {
-            continue;
-        }
-        indices[n] = idx;
-        n += 1;
-    }
-
-    unsafe { libc::freeifaddrs(ifap) };
     (indices, n)
 }
