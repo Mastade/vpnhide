@@ -233,7 +233,12 @@ class HookEntry : IXposedHookLoadPackage {
         val observer =
             object : android.os.FileObserver(
                 File(dir),
-                CREATE or CLOSE_WRITE or MOVED_TO or MODIFY,
+                // CLOSE_WRITE + MOVED_TO is enough: the writers we control
+                // either do a single short `> file` redirect (one write +
+                // close) or atomic-rename via `mv`. MODIFY would fire
+                // mid-write on multi-write writers and let the hook read
+                // a partially-populated file before the writer closes.
+                CREATE or CLOSE_WRITE or MOVED_TO,
             ) {
                 override fun onEvent(
                     event: Int,
