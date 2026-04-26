@@ -731,6 +731,36 @@ pub unsafe extern "C" fn hooked_recvmsg(fd: c_int, msg: *mut libc::msghdr, flags
         return ret;
     }
 
+    let hdr = unsafe { &*msg };
+    if hdr.msg_iovlen != 1 || hdr.msg_iov.is_null() {
+        return ret;
+    }
+
+    let iov = unsafe { &*hdr.msg_iov };
+    if iov.iov_base.is_null() {
+        return ret;
+    }
+
+    unsafe { maybe_filter_netlink_buf(fd, iov.iov_base as *mut u8, ret) }
+}
+
+/// Post-process a netlink read: if `fd` is a netlink socket and the
+/// `IN_GETIFADDRS` guard isn't set, parse the first message type from
+/// `buf[..ret as usize]`, collect VPN iface indices, and rewrite the
+/// buffer to filter out VPN entries. Returns the new (possibly smaller)
+/// `ret` to propagate to the caller. If anything is wrong (not netlink,
+/// guard set, ret < 16, no VPN indices, wrong message type) returns
+/// `ret` unchanged.
+///
+/// # Safety
+///
+/// `buf` must be valid for `ret` bytes of read+write access when `ret >= 16`.
+unsafe fn maybe_filter_netlink_buf(fd: c_int, buf: *mut u8, ret: isize) -> isize {
+    // Need at least an nlmsghdr (16 bytes) before we can read nlmsg_type.
+    if ret < 16 || buf.is_null() {
+        return ret;
+    }
+
     // Skip non-netlink sockets entirely. For TCP/UDP/Unix the first bytes
     // of the buffer are arbitrary user data (TLS ciphertext, HTTP body,
     // etc.), and used to randomly match RTM_NEWLINK/RTM_NEWADDR and trip
@@ -741,25 +771,15 @@ pub unsafe extern "C" fn hooked_recvmsg(fd: c_int, msg: *mut libc::msghdr, flags
     }
 
     // Guard against re-entry from bionic's getifaddrs internals calling
-    // recvmsg on its own netlink socket while we're already mid-filter.
+    // recv/recvmsg on its own netlink socket while we're already mid-filter.
     if IN_GETIFADDRS.with(|f| f.get()) {
         return ret;
     }
 
-    let hdr = unsafe { &*msg };
-    if hdr.msg_iovlen != 1 || hdr.msg_iov.is_null() {
-        return ret;
-    }
-
-    let iov = unsafe { &*hdr.msg_iov };
-    if iov.iov_base.is_null() || (ret as usize) < 16 {
-        return ret;
-    }
-
-    let buf = unsafe { core::slice::from_raw_parts_mut(iov.iov_base as *mut u8, ret as usize) };
+    let data = unsafe { core::slice::from_raw_parts_mut(buf, ret as usize) };
 
     // Quick check: first message type must be RTM_NEWADDR or RTM_NEWLINK.
-    let nlmsg_type = u16::from_ne_bytes([buf[4], buf[5]]);
+    let nlmsg_type = u16::from_ne_bytes([data[4], data[5]]);
     if nlmsg_type != crate::filter::RTM_NEWADDR && nlmsg_type != crate::filter::RTM_NEWLINK {
         return ret;
     }
@@ -769,7 +789,7 @@ pub unsafe extern "C" fn hooked_recvmsg(fd: c_int, msg: *mut libc::msghdr, flags
         return ret;
     }
 
-    crate::filter::filter_netlink_dump(buf, &indices[..n]) as isize
+    crate::filter::filter_netlink_dump(data, &indices[..n]) as isize
 }
 
 // ============================================================================
@@ -816,32 +836,7 @@ pub unsafe extern "C" fn hooked_recv(
 
     let ret = unsafe { real(fd, buf, len, flags) };
 
-    if ret < 16 || buf.is_null() {
-        return ret;
-    }
-
-    // Same socket-family + recursion guards as hooked_recvmsg — see there.
-    if !is_netlink_fd(fd) {
-        return ret;
-    }
-    if IN_GETIFADDRS.with(|f| f.get()) {
-        return ret;
-    }
-
-    let data = unsafe { core::slice::from_raw_parts_mut(buf as *mut u8, ret as usize) };
-
-    // Quick check: first message type must be RTM_NEWADDR or RTM_NEWLINK.
-    let nlmsg_type = u16::from_ne_bytes([data[4], data[5]]);
-    if nlmsg_type != crate::filter::RTM_NEWADDR && nlmsg_type != crate::filter::RTM_NEWLINK {
-        return ret;
-    }
-
-    let (indices, n) = collect_vpn_iface_indices();
-    if n == 0 {
-        return ret;
-    }
-
-    crate::filter::filter_netlink_dump(data, &indices[..n]) as isize
+    unsafe { maybe_filter_netlink_buf(fd, buf as *mut u8, ret) }
 }
 
 /// Collect interface indices of VPN interfaces. Uses real_getifaddrs
