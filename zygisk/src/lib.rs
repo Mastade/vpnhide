@@ -2,29 +2,75 @@
 //! Android VPN from selected apps by hooking the libc network-introspection
 //! syscalls that the apps use to detect `tun0`/`wg0`/etc.
 //!
-//! ## High-level flow
+//! ## Zygisk module lifecycle (where things actually run)
 //!
-//! 1. **`on_load`** — stash nothing, just log. The target app's native
-//!    libraries aren't loaded yet at this stage so we can't PLT-hook them.
-//! 2. **`preAppSpecialize`** — we get told which app is about to be forked
-//!    (via `args.nice_name`). Look up the package name against our
-//!    allowlist file (`/data/adb/modules/vpnhide_zygisk/targets.txt`). If
-//!    the current app isn't in the list, set `DlcloseModuleLibrary` and
-//!    return — the module is unloaded cleanly after specialization. If
-//!    it IS in the list, stash a flag and wait for post-specialize.
-//! 3. **`postAppSpecialize`** — the app's main native libraries have now
-//!    been loaded into the process. Parse `/proc/self/maps`, collect every
-//!    distinct ELF file backing an executable mapping, and register a PLT
-//!    hook on each that redirects `ioctl`, `getifaddrs`, and `openat`
-//!    to our replacement functions. From this point on, any call from
-//!    any loaded library into these libc symbols goes through our filter.
+//! This is the part that's easy to get wrong on the first read, so it's
+//! spelled out here. Sources verified against:
+//!
+//!   * Magisk upstream `api.hpp` (v2):
+//!     <https://github.com/topjohnwu/Magisk/blob/06531f6d06a73b4770762964e41201b9f157923b/native/jni/zygisk/api.hpp>
+//!     — explicitly: _"modules will only be loaded after zygote has forked
+//!     the child process. THIS MEANS ALL OF YOUR CODE RUNS IN THE
+//!     APP/SYSTEM SERVER PROCESS, NOT THE ZYGOTE DAEMON!"_
+//!   * `zygisk-api-rs` trait docs (`api/mod.rs:26-27`): _"This method gets
+//!     called as soon as the Zygisk module gets loaded into the target
+//!     process"_.
+//!   * NeoZygisk loader `module.cpp::run_modules_pre()`: `DlopenMem(...)`
+//!     then `m.onLoad(env)` — both inside the `fork_pre`-child branch.
+//!
+//! Concrete sequence, per app launch:
+//!
+//! 1. Zygote receives a request to spawn an app.
+//! 2. Zygote calls `fork()`. Two processes now exist; the parent (zygote)
+//!    returns to its event loop. Everything below runs in the **child**.
+//! 3. NeoZygisk's loader `dlopen`s our `arm64-v8a.so` from a memfd in the
+//!    child. This is when our static initialisers run and our
+//!    `module_entry` symbol gets resolved.
+//! 4. **`on_load`** — first callback we get. Runs in the freshly-forked,
+//!    not-yet-specialised child. We have root privileges here (zygote
+//!    privileges, not yet dropped). The Zygisk API gives us a fd to
+//!    `/data/adb/modules/<id>` via `get_module_dir()` — usable now,
+//!    closed by SELinux later.
+//! 5. **`pre_app_specialize`** — last call before the kernel transitions
+//!    the process to the app's UID and SELinux context. `args.nice_name`
+//!    tells us which package this fork is for. We decide here whether
+//!    to install hooks; for non-targets we set `DlCloseModuleLibrary`.
+//! 6. The kernel/zygote applies app specialisation: setuid to the app's
+//!    UID, switch SELinux context, install seccomp filter, drop caps.
+//! 7. **`post_app_specialize`** — runs as the app, before the app's
+//!    `main()` / `ContentProvider.onCreate()`. Native libs from the APK
+//!    haven't loaded yet either; that's why we install inline hooks
+//!    on `libc.so` itself instead of PLT-hooking each caller.
+//! 8. NeoZygisk `dlclose`s our `.so` from this child if we set
+//!    `DlCloseModuleLibrary` in step 5; otherwise the .so stays mapped
+//!    until the app exits.
+//!
+//! ## Implications for state (the easy-to-miss part)
+//!
+//! Because the `.so` is `dlopen`ed afresh in every child, **every Rust
+//! `static` is reset to its initial state on every app launch**. Concretely:
+//!
+//!   * `static CACHED_TARGETS: OnceLock<…>` re-initialises in every
+//!     forked child. `targets.txt` is read on every app launch — so a
+//!     force-stop + restart of a target app picks up edits to the file
+//!     immediately. There is no zygote-side cache to invalidate; live-
+//!     reload is automatic by virtue of the lifecycle.
+//!   * Saved-original libc pointers (`REAL_IOCTL` etc.) are also fresh
+//!     per child, which is fine because we only ever set them inside
+//!     `install_hooks()` from `post_app_specialize`.
+//!   * No cross-app state can ever leak through Rust statics. Anything
+//!     persistent must live on disk.
+//!
+//! Mental shortcut: think of the `.so` as if it were freshly compiled
+//! and loaded into a brand-new process every time an app launches —
+//! because that's literally what happens.
 //!
 //! ## Module metadata
 //!
 //! The KernelSU module install script places this shared library at
 //! `/data/adb/modules/vpnhide_zygisk/zygisk/arm64-v8a.so`. NeoZygisk
-//! injects it into every forked app process; the `preAppSpecialize` filter
-//! ensures we only actually do work for targeted apps.
+//! injects it into every forked app process; the `pre_app_specialize`
+//! filter ensures we only actually do work for targeted apps.
 
 mod filter;
 mod generated;
@@ -125,7 +171,14 @@ pub struct VpnHide {
 // Single-threaded access by construction.
 unsafe impl Sync for VpnHide {}
 
-/// Cached targets loaded via Zygisk's module dir fd.
+/// Cached targets, loaded once per process via Zygisk's module dir fd.
+///
+/// **Lifetime is per app launch, not per zygote boot.** The `.so` is
+/// `dlopen`ed fresh in every forked child, so this `OnceLock` starts
+/// empty and gets initialised by `on_load` on every app launch. That
+/// means edits to `targets.txt` are picked up on the next force-stop +
+/// restart — no zygote restart, no reboot needed. See the lifecycle
+/// block at the top of this file for the full reasoning.
 static CACHED_TARGETS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 
 fn parse_targets(content: &str) -> Vec<String> {
@@ -173,11 +226,15 @@ impl ZygiskModule for VpnHide {
         init_logger();
         // Zygisksu returns a raw fd to /data/adb/modules/<id> that we own.
         // Wrap it in OwnedFd so the drop at the end of this function closes
-        // it before zygote forks any app. If we leak it, every app forked
-        // after us inherits an fd pointing inside /data/adb/ — and apps
-        // that scan /proc/self/fd for root-managed paths (e.g. Ozon's
-        // anti-tamper SDK) detect it and refuse to run, even though our
-        // .so is dlclosed for non-target apps.
+        // it before this app's code starts running. We are already in the
+        // forked child here (see the lifecycle block at the top of this
+        // file), so the fd would otherwise be visible to:
+        //   1. The app itself reading /proc/self/fd — anti-tamper SDKs
+        //      (e.g. Ozon's) scan for fds pointing inside /data/adb and
+        //      refuse to run.
+        //   2. Any sub-process the app spawns via fork()/Runtime.exec() —
+        //      child inherits our open fd unless we close it here.
+        // Either way the fd needs to die before pre_app_specialize returns.
         let dir_fd = unsafe { OwnedFd::from_raw_fd(api.get_module_dir()) };
         // Apply the user's debug-logging preference before anything below
         // gets a chance to log. Default is Off, so silence is the no-config
