@@ -1,4 +1,3 @@
-#![allow(clippy::missing_const_for_thread_local)]
 //! The actual libc hook functions.
 //!
 //! These are called INSTEAD OF the real libc symbols from any PLT we've
