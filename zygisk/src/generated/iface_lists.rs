@@ -107,6 +107,10 @@ pub fn matches_vpn(name: &[u8]) -> bool {
     if contains_ci(name, b"vpn") {
         return true;
     }
+    // Anonymous netdev / renamed tunnel using the kernel's default naming pattern (e.g. `ip link set tun0 name if33` from issue #86). Does NOT match `ifb<N>` — those are kernel intermediate-functional-block traffic-shaping ifaces (different shape: `if` + letter, not + digit).
+    if starts_with_then_digits_ci(name, b"if") {
+        return true;
+    }
     false
 }
 
@@ -148,7 +152,13 @@ mod tests {
         assert_eq!(matches_vpn(b"dummy0"), false, "matches_vpn('dummy0')");
         assert_eq!(matches_vpn(b"bnep0"), false, "matches_vpn('bnep0')");
         assert_eq!(matches_vpn(b"rndis0"), false, "matches_vpn('rndis0')");
-        assert_eq!(matches_vpn(b"if33"), false, "matches_vpn('if33')");
+        assert_eq!(matches_vpn(b"if33"), true, "matches_vpn('if33')");
+        assert_eq!(matches_vpn(b"if0"), true, "matches_vpn('if0')");
+        assert_eq!(matches_vpn(b"if99"), true, "matches_vpn('if99')");
+        assert_eq!(matches_vpn(b"ifb0"), false, "matches_vpn('ifb0')");
+        assert_eq!(matches_vpn(b"ifb1"), false, "matches_vpn('ifb1')");
+        assert_eq!(matches_vpn(b"if"), false, "matches_vpn('if')");
+        assert_eq!(matches_vpn(b"if_inet6"), false, "matches_vpn('if_inet6')");
         assert_eq!(matches_vpn(b""), false, "matches_vpn('')");
         assert_eq!(matches_vpn(b"tunl"), true, "matches_vpn('tunl')");
         assert_eq!(matches_vpn(b"atun0"), false, "matches_vpn('atun0')");

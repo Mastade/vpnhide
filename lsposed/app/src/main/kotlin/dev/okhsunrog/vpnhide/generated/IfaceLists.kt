@@ -27,6 +27,8 @@ internal object IfaceLists {
         if (n.startsWith("gre")) return true
         // catch-all for renamed clients (myvpn0, vpn-client, xvpn1, ...)
         if (n.contains("vpn")) return true
+        // Anonymous netdev / renamed tunnel using the kernel's default naming pattern (e.g. `ip link set tun0 name if33` from issue #86). Does NOT match `ifb<N>` — those are kernel intermediate-functional-block traffic-shaping ifaces (different shape: `if` + letter, not + digit).
+        if (n.startsWith("if") && n.length > 2 && n.substring(2).all { it.isDigit() }) return true
         return false
     }
 }

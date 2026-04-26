@@ -55,7 +55,13 @@ int main(void)
 	check("dummy0", false);
 	check("bnep0", false);
 	check("rndis0", false);
-	check("if33", false);
+	check("if33", true);
+	check("if0", true);
+	check("if99", true);
+	check("ifb0", false);
+	check("ifb1", false);
+	check("if", false);
+	check("if_inet6", false);
 	check("", false);
 	check("tunl", true);
 	check("atun0", false);
@@ -65,6 +71,6 @@ int main(void)
 		fprintf(stderr, "%d test(s) failed\n", failures);
 		return 1;
 	}
-	printf("OK: 36 vectors passed\n");
+	printf("OK: 42 vectors passed\n");
 	return 0;
 }
