@@ -14,3 +14,14 @@ for i in $(seq 1 60); do
 done
 
 sh "$APPLY" && log -t vpnhide_ports "applied iptables rules at boot"
+
+# Re-apply once more 30 s later. On slow boots netd has been observed to
+# flush/rebuild its own chains AFTER bw_OUTPUT first appears, which
+# would wipe ours. The apply script is idempotent — chains are created
+# with `-N ... 2>/dev/null || true` and rebuilt atomically via
+# `iptables-restore --noflush` — so a second pass is harmless when
+# nothing was wiped and self-healing when it was.
+(
+    sleep 30
+    sh "$APPLY" && log -t vpnhide_ports "re-applied iptables rules (T+30s safety pass)"
+) &
