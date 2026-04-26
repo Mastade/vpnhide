@@ -22,7 +22,7 @@
 //! * If anything fails inside a hook, we fall back to calling the
 //!   original. Panicking would abort the entire process.
 
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 use core::ffi::{c_int, c_void};
 use core::sync::atomic::{AtomicPtr, Ordering};
 
@@ -516,8 +516,30 @@ pub unsafe extern "C" fn hooked_openat(
     unsafe { real(dirfd, pathname, flags, mode) }
 }
 
+thread_local! {
+    /// Reusable buffer for the read+filter+memfd path of `open_filtered_proc_net`.
+    ///
+    /// Initial capacity 64 KiB matches the previous fixed-size stack array
+    /// — covers typical contents on tested devices (`/proc/net/tcp6` ≤ 16 KiB
+    /// on a Pixel 8 Pro with ~80 sockets) with headroom for busier systems.
+    /// The Vec grows past 64 KiB on demand, so a device with several hundred
+    /// active sockets no longer truncates the file (the prior fixed buffer
+    /// silently dropped any tail past 64 KiB, occasionally hiding caller's
+    /// own sockets and breaking apps that walk the list).
+    ///
+    /// Lifetime is per-thread: the first call allocates 64 KiB, every later
+    /// call into this function on the same thread reuses the allocation
+    /// (`clear()` keeps capacity intact). Memory cost is bounded by
+    /// max-observed-size × number of threads that ever opened a /proc/net
+    /// file, which on Android is typically 1-2.
+    ///
+    /// Lazy init (no `const { … }` block) is required because
+    /// `Vec::with_capacity` is not const; the per-`with()` flag check is
+    /// negligible relative to the syscalls we're about to issue.
+    static PROC_NET_BUF: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(65536));
+}
+
 /// Read a /proc/net file, apply the appropriate filter, return a memfd.
-/// Buffer is 64KB to accommodate /proc/net/tcp which can be larger.
 unsafe fn open_filtered_proc_net(
     real: OpenatFn,
     dirfd: c_int,
@@ -531,56 +553,65 @@ unsafe fn open_filtered_proc_net(
         return fd;
     }
 
-    // /proc/net/tcp can be larger than route/if_inet6, use 64KB.
-    const BUF_SIZE: usize = 65536;
-    // SAFETY: we're on a thread stack that can handle 64KB. Android's
-    // default thread stack is 1MB+, and this function is only called
-    // on specific /proc/net opens.
-    let mut buf = [0u8; BUF_SIZE];
-    let mut total = 0usize;
-    loop {
-        let remaining = buf.len() - total;
-        if remaining == 0 {
-            break;
-        }
-        let n = unsafe { libc::read(fd, buf[total..].as_mut_ptr() as *mut c_void, remaining) };
-        if n <= 0 {
-            break;
-        }
-        total += n as usize;
-    }
-    unsafe { libc::close(fd) };
+    PROC_NET_BUF.with(|cell| {
+        let mut buf = cell.borrow_mut();
+        buf.clear();
 
-    let filtered_len = apply_filter(&mut buf[..total], kind);
-
-    let mfd_flags: libc::c_uint = if flags & libc::O_CLOEXEC != 0 { 1 } else { 0 };
-    let memfd = unsafe { libc::syscall(libc::SYS_memfd_create, c"".as_ptr(), mfd_flags) as c_int };
-    if memfd < 0 {
-        set_errno(libc::EIO);
-        return -1;
-    }
-
-    if filtered_len > 0 {
-        let mut written = 0usize;
-        while written < filtered_len {
-            let n = unsafe {
-                libc::write(
-                    memfd,
-                    buf[written..].as_ptr() as *const c_void,
-                    filtered_len - written,
-                )
-            };
-            if n < 0 {
-                unsafe { libc::close(memfd) };
-                set_errno(libc::EIO);
-                return -1;
+        // Read until EOF or error, growing the Vec as needed. Reserves
+        // 8 KiB chunks when full; Vec's amortised doubling keeps the realloc
+        // count O(log size) for unusually large files. Reads land directly
+        // into the unused tail (`spare_capacity_mut`) — no intermediate copy.
+        loop {
+            if buf.len() == buf.capacity() {
+                buf.reserve(8 * 1024);
             }
-            written += n as usize;
+            let len = buf.len();
+            let cap = buf.capacity();
+            let n =
+                unsafe { libc::read(fd, buf.as_mut_ptr().add(len).cast::<c_void>(), cap - len) };
+            if n <= 0 {
+                break;
+            }
+            // SAFETY: libc::read returns ≤ `cap - len`, so the new len is
+            // within capacity. The bytes were just initialised by the kernel.
+            unsafe {
+                buf.set_len(len + n as usize);
+            }
         }
-        unsafe { libc::lseek(memfd, 0, libc::SEEK_SET) };
-    }
+        unsafe { libc::close(fd) };
 
-    memfd
+        let filtered_len = apply_filter(&mut buf[..], kind);
+
+        let mfd_flags: libc::c_uint = if flags & libc::O_CLOEXEC != 0 { 1 } else { 0 };
+        let memfd =
+            unsafe { libc::syscall(libc::SYS_memfd_create, c"".as_ptr(), mfd_flags) as c_int };
+        if memfd < 0 {
+            set_errno(libc::EIO);
+            return -1;
+        }
+
+        if filtered_len > 0 {
+            let mut written = 0usize;
+            while written < filtered_len {
+                let n = unsafe {
+                    libc::write(
+                        memfd,
+                        buf[written..filtered_len].as_ptr().cast::<c_void>(),
+                        filtered_len - written,
+                    )
+                };
+                if n < 0 {
+                    unsafe { libc::close(memfd) };
+                    set_errno(libc::EIO);
+                    return -1;
+                }
+                written += n as usize;
+            }
+            unsafe { libc::lseek(memfd, 0, libc::SEEK_SET) };
+        }
+
+        memfd
+    })
 }
 
 /// Dispatch to the right filter function based on the file type.
