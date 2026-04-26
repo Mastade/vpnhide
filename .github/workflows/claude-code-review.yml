@@ -19,12 +19,14 @@ jobs:
     #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
 
     runs-on: ubuntu-latest
-    # `pull-requests: write` lets Claude post the review summary and
-    # inline comments — read-only was a no-op for us. No `contents:
-    # write`: Claude advises, doesn't commit.
+    # Workflow-level permissions don't actually drive Claude's GitHub
+    # API access here — the action uses an OIDC-issued installation
+    # token from the `claude[bot]` GitHub App, whose own permissions
+    # (configured at App-install time) take effect. These read scopes
+    # cover the rest of the workflow (checkout, etc.).
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: read
       issues: read
       id-token: write
 
@@ -42,6 +44,12 @@ jobs:
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          # Echo Claude's full review report into the job log (visible in
+          # the Actions UI). Useful when Claude classifies its inline
+          # findings as low-confidence and skips posting — without this
+          # you can't tell whether it had nothing to flag or whether
+          # something filtered out.
+          display_report: 'true'
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
 
