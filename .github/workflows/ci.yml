@@ -41,11 +41,11 @@ jobs:
       # Python lint + format (ruff). Fast (~100 ms on 1800 LoC) so it
       # runs first — fails before the slow Rust/Gradle steps.
       - name: ruff format
-        uses: astral-sh/ruff-action@v4
+        uses: astral-sh/ruff-action@v4.0.0
         with:
           args: format --check
       - name: ruff check
-        uses: astral-sh/ruff-action@v4
+        uses: astral-sh/ruff-action@v4.0.0
         with:
           args: check
 
