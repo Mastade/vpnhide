@@ -6,6 +6,8 @@ import dev.okhsunrog.vpnhide.generated.IfaceLists
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 private const val TAG = "VpnHide"
 
@@ -26,20 +28,50 @@ internal const val KMOD_LOAD_DMESG_FILE = "/data/adb/vpnhide_kmod/load_dmesg"
 internal const val ZYGISK_MODULE_DIR = "/data/adb/modules/vpnhide_zygisk"
 internal const val ZYGISK_STATUS_FILE_NAME = "vpnhide_zygisk_active"
 
+/** Default cap on a single su invocation. Most root commands here finish
+ *  in milliseconds; this only fires if the su binary is genuinely stuck
+ *  (e.g. waiting on a GUI prompt that the user dismissed). */
+internal const val SU_DEFAULT_TIMEOUT_SEC: Long = 10
+
 /**
  * Returns exit code and stdout. Exit code -1 means the su binary
- * couldn't be executed at all (not installed or permission denied).
+ * couldn't be executed at all (not installed, permission denied, or
+ * still running after [timeoutSec] seconds — in which case it gets
+ * destroyForcibly()'d so we don't leak the process).
+ *
+ * Both pipes are drained on dedicated threads — `readText()` directly
+ * on `proc.inputStream` would block until EOF, so a hung child means
+ * `waitFor(timeout)` is never even reached. The threads exit naturally
+ * once the child (or destroyForcibly) closes its pipes.
  */
-internal fun suExec(cmd: String): Pair<Int, String> =
+internal fun suExec(
+    cmd: String,
+    timeoutSec: Long = SU_DEFAULT_TIMEOUT_SEC,
+): Pair<Int, String> =
     try {
         val proc = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
         try {
-            val stderrDrain = Thread { proc.errorStream.readBytes() }
+            val stdoutHolder = AtomicReference("")
+            val stdoutDrain =
+                Thread {
+                    runCatching { stdoutHolder.set(proc.inputStream.bufferedReader().readText()) }
+                }
+            val stderrDrain = Thread { runCatching { proc.errorStream.readBytes() } }
+            stdoutDrain.start()
             stderrDrain.start()
-            val stdout = proc.inputStream.bufferedReader().readText()
-            val exitCode = proc.waitFor()
-            stderrDrain.join()
-            exitCode to stdout
+
+            val finished = proc.waitFor(timeoutSec, TimeUnit.SECONDS)
+            if (!finished) {
+                Log.w(TAG, "su exec timed out after ${timeoutSec}s: $cmd")
+                proc.destroyForcibly()
+            }
+            // After destroyForcibly the pipes close and the drains exit;
+            // a 1s join is plenty and bounds the worst case.
+            stdoutDrain.join(1_000)
+            stderrDrain.join(1_000)
+
+            val exit = if (finished) proc.exitValue() else -1
+            exit to stdoutHolder.get()
         } finally {
             proc.destroy()
         }
@@ -48,7 +80,10 @@ internal fun suExec(cmd: String): Pair<Int, String> =
         -1 to ""
     }
 
-internal suspend fun suExecAsync(cmd: String): Pair<Int, String> = withContext(Dispatchers.IO) { suExec(cmd) }
+internal suspend fun suExecAsync(
+    cmd: String,
+    timeoutSec: Long = SU_DEFAULT_TIMEOUT_SEC,
+): Pair<Int, String> = withContext(Dispatchers.IO) { suExec(cmd, timeoutSec) }
 
 /**
  * Single source of truth for "is a VPN currently up?". Both the dashboard

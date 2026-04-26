@@ -114,7 +114,15 @@ fun AppHidingScreen(
     // (itself) and strip its own package from the result, so frameworks
     // see a self-lookup NameNotFoundException and bail. Collapse to
     // observer-only on load so the next Save persists the fix.
+    //
+    // While `dirty` is true the user has unsaved checkbox edits — don't
+    // overwrite them with a fresh snapshot from the cache. Caches can
+    // refresh under us (ON_RESUME, another screen calling
+    // `TargetsCache.refresh()`) and silently dropping the edits is the
+    // worst outcome here. Treat saving as the only legitimate point
+    // where the snapshot becomes authoritative again.
     LaunchedEffect(cachedApps, targets) {
+        if (dirty) return@LaunchedEffect
         val apps = cachedApps ?: return@LaunchedEffect
         val t = targets ?: return@LaunchedEffect
         val hidden = t.hiddenPkgs
