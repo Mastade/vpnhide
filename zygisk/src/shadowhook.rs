@@ -37,7 +37,6 @@ unsafe extern "C" {
         orig_addr: *mut *mut c_void,
     ) -> *mut c_void;
 
-    #[allow(dead_code)]
     fn shadowhook_unhook(stub: *mut c_void) -> c_int;
 }
 
@@ -74,4 +73,18 @@ pub unsafe fn hook_sym(
     out_orig: *mut *mut c_void,
 ) -> *mut c_void {
     unsafe { shadowhook_hook_sym_name(lib.as_ptr(), sym.as_ptr(), new_fn, out_orig) }
+}
+
+/// Remove a hook previously installed by `hook_sym`. `stub` is the
+/// non-null pointer that `hook_sym` returned. Returns 0 on success,
+/// non-zero on failure (best-effort — there's nothing useful to do
+/// with a failure here, since we only call this during partial-install
+/// rollback).
+///
+/// # Safety
+///
+/// `stub` must be a non-null pointer previously returned by
+/// `hook_sym`, and not already unhooked.
+pub unsafe fn unhook(stub: *mut c_void) -> c_int {
+    unsafe { shadowhook_unhook(stub) }
 }
