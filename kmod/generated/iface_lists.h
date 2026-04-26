@@ -42,26 +42,6 @@ static inline bool vpnhide_iface_starts_with_then_digits_ci(
 	return true;
 }
 
-static inline bool vpnhide_iface_starts_with_then_digits_optional_ci(
-	const char *name, const char *prefix)
-{
-	size_t i;
-	if (!vpnhide_iface_starts_with_ci(name, prefix))
-		return false;
-	for (i = strlen(prefix); name[i]; i++)
-		if (name[i] < '0' || name[i] > '9')
-			return false;
-	return true;
-}
-
-static inline bool vpnhide_iface_starts_with_then_any_ci(
-	const char *name, const char *prefix)
-{
-	if (!vpnhide_iface_starts_with_ci(name, prefix))
-		return false;
-	return name[strlen(prefix)] != '\0';
-}
-
 static inline bool vpnhide_iface_equals_ci(
 	const char *name, const char *other)
 {

@@ -68,7 +68,7 @@ GENERATED_HEADER_LINE = (
 # ---------------------------------------------------------------------------
 
 
-VALID_KINDS = ("exact", "prefix", "prefix_digits", "prefix_digits_optional", "prefix_any", "contains")
+VALID_KINDS = ("exact", "prefix", "prefix_digits", "contains")
 
 
 class Rule:
@@ -114,14 +114,8 @@ def parse_rule(entry: dict[str, Any]) -> Rule:
         suffix = str(match["suffix"])
         if suffix == "digits":
             kind = "prefix_digits"
-        elif suffix == "digits_optional":
-            kind = "prefix_digits_optional"
-        elif suffix == "any":
-            kind = "prefix_any"
         else:
-            raise SystemExit(
-                f"unsupported suffix {suffix!r}; expected digits / digits_optional / any"
-            )
+            raise SystemExit(f"unsupported suffix {suffix!r}; expected digits")
         needle = str(match["prefix"])
     elif keys == {"contains"}:
         needle = str(match["contains"])
@@ -266,26 +260,6 @@ def emit_kmod(rules: list[Rule]) -> str:
     lines.append("\treturn true;")
     lines.append("}")
     lines.append("")
-    lines.append("static inline bool vpnhide_iface_starts_with_then_digits_optional_ci(")
-    lines.append("\tconst char *name, const char *prefix)")
-    lines.append("{")
-    lines.append("\tsize_t i;")
-    lines.append("\tif (!vpnhide_iface_starts_with_ci(name, prefix))")
-    lines.append("\t\treturn false;")
-    lines.append("\tfor (i = strlen(prefix); name[i]; i++)")
-    lines.append("\t\tif (name[i] < '0' || name[i] > '9')")
-    lines.append("\t\t\treturn false;")
-    lines.append("\treturn true;")
-    lines.append("}")
-    lines.append("")
-    lines.append("static inline bool vpnhide_iface_starts_with_then_any_ci(")
-    lines.append("\tconst char *name, const char *prefix)")
-    lines.append("{")
-    lines.append("\tif (!vpnhide_iface_starts_with_ci(name, prefix))")
-    lines.append("\t\treturn false;")
-    lines.append("\treturn name[strlen(prefix)] != '\\0';")
-    lines.append("}")
-    lines.append("")
     lines.append("static inline bool vpnhide_iface_equals_ci(")
     lines.append("\tconst char *name, const char *other)")
     lines.append("{")
@@ -334,10 +308,6 @@ def emit_kmod(rules: list[Rule]) -> str:
             fn = "vpnhide_iface_starts_with_ci"
         elif r.kind == "prefix_digits":
             fn = "vpnhide_iface_starts_with_then_digits_ci"
-        elif r.kind == "prefix_digits_optional":
-            fn = "vpnhide_iface_starts_with_then_digits_optional_ci"
-        elif r.kind == "prefix_any":
-            fn = "vpnhide_iface_starts_with_then_any_ci"
         elif r.kind == "contains":
             fn = "vpnhide_iface_contains_ci"
         lines.append(f"\tif ({fn}(name, {c_str_lit(r.needle)}))")
@@ -430,17 +400,6 @@ def emit_rust(rules: list[Rule], tests: list[TestVector]) -> str:
     lines.append("    !rest.is_empty() && rest.iter().all(|b| b.is_ascii_digit())")
     lines.append("}")
     lines.append("")
-    lines.append("fn starts_with_then_digits_optional_ci(name: &[u8], prefix: &[u8]) -> bool {")
-    lines.append("    if !starts_with_ci(name, prefix) {")
-    lines.append("        return false;")
-    lines.append("    }")
-    lines.append("    name[prefix.len()..].iter().all(|b| b.is_ascii_digit())")
-    lines.append("}")
-    lines.append("")
-    lines.append("fn starts_with_then_any_ci(name: &[u8], prefix: &[u8]) -> bool {")
-    lines.append("    starts_with_ci(name, prefix) && name.len() > prefix.len()")
-    lines.append("}")
-    lines.append("")
     lines.append("fn equals_ci(name: &[u8], other: &[u8]) -> bool {")
     lines.append("    if name.len() != other.len() {")
     lines.append("        return false;")
@@ -484,10 +443,6 @@ def emit_rust(rules: list[Rule], tests: list[TestVector]) -> str:
             fn = "starts_with_ci"
         elif r.kind == "prefix_digits":
             fn = "starts_with_then_digits_ci"
-        elif r.kind == "prefix_digits_optional":
-            fn = "starts_with_then_digits_optional_ci"
-        elif r.kind == "prefix_any":
-            fn = "starts_with_then_any_ci"
         elif r.kind == "contains":
             fn = "contains_ci"
         lines.append(f"    if {fn}(name, {rust_byte_lit(r.needle)}) {{")
@@ -511,23 +466,6 @@ def emit_rust(rules: list[Rule], tests: list[TestVector]) -> str:
             f"        assert_eq!(matches_vpn({rust_byte_lit(t.name)}), {expected}, "
             f"\"matches_vpn({t.name!r})\");"
         )
-    lines.append("    }")
-    lines.append("")
-    lines.append("    #[test]")
-    lines.append("    fn helper_starts_with_then_digits_optional() {")
-    lines.append('        assert!(starts_with_then_digits_optional_ci(b"foo", b"foo"));')
-    lines.append('        assert!(starts_with_then_digits_optional_ci(b"foo0", b"foo"));')
-    lines.append('        assert!(starts_with_then_digits_optional_ci(b"foo123", b"foo"));')
-    lines.append('        assert!(!starts_with_then_digits_optional_ci(b"foox", b"foo"));')
-    lines.append('        assert!(!starts_with_then_digits_optional_ci(b"fo", b"foo"));')
-    lines.append("    }")
-    lines.append("")
-    lines.append("    #[test]")
-    lines.append("    fn helper_starts_with_then_any() {")
-    lines.append('        assert!(starts_with_then_any_ci(b"v4-x", b"v4-"));')
-    lines.append('        assert!(starts_with_then_any_ci(b"v4-rmnet0", b"v4-"));')
-    lines.append('        assert!(!starts_with_then_any_ci(b"v4-", b"v4-"));')
-    lines.append('        assert!(!starts_with_then_any_ci(b"v3-x", b"v4-"));')
     lines.append("    }")
     lines.append("}")
     lines.append("")
@@ -564,15 +502,6 @@ def emit_kotlin(rules: list[Rule]) -> str:
                 f"n.length > {len(r.needle)} && "
                 f"n.substring({len(r.needle)}).all {{ it.isDigit() }}"
             )
-        elif r.kind == "prefix_digits_optional":
-            lit = kt_str_lit(r.needle)
-            cond = (
-                f"n.startsWith({lit}) && "
-                f"n.substring({len(r.needle)}).all {{ it.isDigit() }}"
-            )
-        elif r.kind == "prefix_any":
-            lit = kt_str_lit(r.needle)
-            cond = f"n.startsWith({lit}) && n.length > {len(r.needle)}"
         elif r.kind == "contains":
             cond = f"n.contains({kt_str_lit(r.needle)})"
         lines.append(f"        if ({cond}) return true")
