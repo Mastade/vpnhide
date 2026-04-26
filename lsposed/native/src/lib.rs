@@ -396,16 +396,23 @@ unsafe fn for_each_rtattr(
     buf: &[u8],
     start: usize,
     end: usize,
-    mut on_attr: impl FnMut(&Rtattr, usize),
+    mut on_attr: impl FnMut(&Rtattr, &[u8]),
 ) {
+    // Walk rtattrs in `buf[start..end]`. For each, hand the callback
+    // the header AND a slice covering its payload — already bounds-
+    // checked against `end`, so callbacks can never read past the
+    // message. A truncated tail (rta_len < 4, or rta_len reaching
+    // past `end`) ends the walk; netlink dumps end on padding, so
+    // this is the normal exit too.
     let mut off = start;
     while off + 4 <= end {
         let rta = unsafe { &*(buf.as_ptr().add(off) as *const Rtattr) };
-        if rta.rta_len < 4 {
+        let rta_len = rta.rta_len as usize;
+        if rta_len < 4 || off + rta_len > end {
             break;
         }
-        on_attr(rta, off);
-        off += (rta.rta_len as usize + 3) & !3;
+        on_attr(rta, &buf[off + 4..off + rta_len]);
+        off += (rta_len + 3) & !3;
     }
 }
 
@@ -458,10 +465,11 @@ fn check_netlink_getlink() -> CheckOutput {
                 |b, offset, msg_len| {
                     let data_start = offset + hdr_plus_ifinfo;
                     let msg_end = offset + msg_len;
-                    for_each_rtattr(b, data_start, msg_end, |rta, rta_off| {
-                        if rta.rta_type == IFLA_IFNAME {
-                            let name =
-                                cstr_to_str(b.as_ptr().add(rta_off + 4) as *const libc::c_char);
+                    for_each_rtattr(b, data_start, msg_end, |rta, payload| {
+                        if rta.rta_type == IFLA_IFNAME && !payload.is_empty() {
+                            // IFLA_IFNAME is a NUL-terminated string;
+                            // payload was bounds-checked by for_each_rtattr.
+                            let name = cstr_to_str(payload.as_ptr() as *const libc::c_char);
                             if is_vpn_iface(&name) {
                                 vpn.push(name.clone());
                             }
@@ -533,9 +541,9 @@ fn check_netlink_getroute() -> CheckOutput {
                     total += 1;
                     let data_start = offset + hdr_plus_rtmsg;
                     let msg_end = offset + msg_len;
-                    for_each_rtattr(b, data_start, msg_end, |rta, rta_off| {
-                        if rta.rta_type == RTA_OIF {
-                            let ifindex = *(b.as_ptr().add(rta_off + 4) as *const i32);
+                    for_each_rtattr(b, data_start, msg_end, |rta, payload| {
+                        if rta.rta_type == RTA_OIF && payload.len() >= 4 {
+                            let ifindex = i32::from_ne_bytes(payload[..4].try_into().unwrap());
                             let mut ifname_buf = [0u8; libc::IF_NAMESIZE];
                             let ptr = libc::if_indextoname(
                                 ifindex as u32,

@@ -361,30 +361,61 @@ fn mark_cleanup(api: &mut ZygiskApi<'_, V2>) {
 fn install_hooks() -> Result<(), String> {
     shadowhook::init_once().map_err(|rc| format!("shadowhook_init: rc={rc}"))?;
 
-    hook_libc_sym(c"ioctl", hooked_ioctl as *mut _, set_real_ioctl_ptr)?;
-    hook_libc_sym(
-        c"getifaddrs",
-        hooked_getifaddrs as *mut _,
-        set_real_getifaddrs_ptr,
-    )?;
-    hook_libc_sym(c"openat", hooked_openat as *mut _, set_real_openat_ptr)?;
-    hook_libc_sym(c"recvmsg", hooked_recvmsg as *mut _, set_real_recvmsg_ptr)?;
-    // Hook recv directly. We cannot hook recvfrom because bionic's recv()
-    // does a bare `b recvfrom` — patching recvfrom's prologue breaks recv.
-    // recv itself is 12 bytes (3 instructions), safe for island-mode hooking.
-    hook_libc_sym(c"recv", hooked_recv as *mut _, set_real_recv_ptr)?;
+    // (sym, replacement, stash-original-via). Install order is the
+    // order we'll roll back in on failure (LIFO).
+    //
+    // recv is hooked directly because bionic's `recv()` tail-calls
+    // recvfrom via a bare `b` branch — patching recvfrom's prologue
+    // would break recv. recv itself is 12 bytes (3 instructions),
+    // safe for island-mode hooking.
+    type StoreFn = fn(*const ());
+    let plan: [(&core::ffi::CStr, *mut core::ffi::c_void, StoreFn); 5] = [
+        (c"ioctl", hooked_ioctl as *mut _, set_real_ioctl_ptr),
+        (
+            c"getifaddrs",
+            hooked_getifaddrs as *mut _,
+            set_real_getifaddrs_ptr,
+        ),
+        (c"openat", hooked_openat as *mut _, set_real_openat_ptr),
+        (c"recvmsg", hooked_recvmsg as *mut _, set_real_recvmsg_ptr),
+        (c"recv", hooked_recv as *mut _, set_real_recv_ptr),
+    ];
+
+    let mut installed: Vec<*mut core::ffi::c_void> = Vec::with_capacity(plan.len());
+    for (sym, new_fn, store_orig) in plan {
+        match hook_libc_sym(sym, new_fn, store_orig) {
+            Ok(stub) => installed.push(stub),
+            Err(err) => {
+                // Roll back any hooks already installed before this
+                // one failed — better to be fully off than to leave
+                // the process with a torn hook plan that filters
+                // some libc paths but not others.
+                for stub in installed.into_iter().rev() {
+                    let rc = unsafe { shadowhook::unhook(stub) };
+                    if rc != 0 {
+                        // Nothing useful to do — we're already on
+                        // the error path. Surface it via log so a
+                        // bad install at least leaves a trail.
+                        error!("install_hooks rollback: shadowhook_unhook rc={rc}");
+                    }
+                }
+                return Err(err);
+            }
+        }
+    }
 
     Ok(())
 }
 
-/// Install a single inline hook on a libc symbol and stash the original
-/// trampoline via `store_orig`. Used for every entry point from
-/// `install_hooks`.
+/// Install a single inline hook on a libc symbol and stash the
+/// original trampoline via `store_orig`. Returns the shadowhook stub
+/// pointer on success — caller keeps it for the partial-install
+/// rollback in `install_hooks`.
 fn hook_libc_sym(
     sym: &core::ffi::CStr,
     new_fn: *mut core::ffi::c_void,
     store_orig: fn(*const ()),
-) -> Result<(), String> {
+) -> Result<*mut core::ffi::c_void, String> {
     let mut orig: *mut core::ffi::c_void = core::ptr::null_mut();
     // SAFETY: `new_fn` has an ABI-compatible signature with the target
     // libc symbol; `&mut orig` is a valid writable pointer.
@@ -402,7 +433,7 @@ fn hook_libc_sym(
         ));
     }
     store_orig(orig as *const ());
-    Ok(())
+    Ok(stub)
 }
 
 // ============================================================================

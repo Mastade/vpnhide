@@ -424,6 +424,18 @@ fn match_rel_proc_net(dirfd: c_int, basename: &[u8]) -> Option<ProcNetFile> {
     }
 }
 
+/// Resolves what `dirfd` currently points at by reading
+/// `/proc/self/fd/<dirfd>`. There is a TOCTOU window: the caller can
+/// race `dup2`/`fchdir` between this readlink and the subsequent open
+/// (`open_filtered_proc_net`), so the open could land on a different
+/// directory than the one we just classified.
+///
+/// Treated as accepted exposure: closing it would mean opening through
+/// an unhooked syscall and validating inode/path manually, which is a
+/// large amount of code for what amounts to caller-controlled self-DoS
+/// (the caller has to fight its own fd table to lose the race). Real
+/// detectors don't need this — they just don't `openat` through dirfd
+/// in the first place.
 fn is_dirfd_proc_net(dirfd: c_int) -> bool {
     let mut link_buf = [0u8; 128];
     let mut fd_path = [0u8; 32];
@@ -748,8 +760,16 @@ pub fn set_real_recvmsg_ptr(p: *const ()) {
 /// so, collects VPN interface indices and removes matching entries from
 /// the buffer before returning to the caller.
 ///
-/// Only handles the common single-iov case. Multi-iov netlink responses
-/// pass through unfiltered (extremely rare in practice).
+/// recvmsg distributes `ret` bytes across the iov array in order:
+/// iov[0] fills first, then iov[1], and so on. We filter the portion
+/// that landed in iov[0] — netlink dumps fit there in any sane caller
+/// (bionic always uses iov[0] only). A deliberately split call where
+/// the netlink message crosses an iov boundary is a corner case we
+/// don't try to stitch back together: filtering iov[0] still hides
+/// VPN entries that landed in it; entries fully inside iov[1+] pass
+/// through unfiltered. Strictly better than the previous behaviour,
+/// which bailed out entirely as soon as `iovlen != 1` and let a caller
+/// bypass the filter with a single extra zero-length iov.
 pub unsafe extern "C" fn hooked_recvmsg(fd: c_int, msg: *mut libc::msghdr, flags: c_int) -> isize {
     let Some(real) = real_recvmsg() else {
         set_errno(libc::EFAULT);
@@ -763,7 +783,7 @@ pub unsafe extern "C" fn hooked_recvmsg(fd: c_int, msg: *mut libc::msghdr, flags
     }
 
     let hdr = unsafe { &*msg };
-    if hdr.msg_iovlen != 1 || hdr.msg_iov.is_null() {
+    if hdr.msg_iovlen == 0 || hdr.msg_iov.is_null() {
         return ret;
     }
 
@@ -772,7 +792,12 @@ pub unsafe extern "C" fn hooked_recvmsg(fd: c_int, msg: *mut libc::msghdr, flags
         return ret;
     }
 
-    unsafe { maybe_filter_netlink_buf(fd, iov.iov_base as *mut u8, ret) }
+    let in_first = ret.min(iov.iov_len as isize);
+    let filtered_first = unsafe { maybe_filter_netlink_buf(fd, iov.iov_base as *mut u8, in_first) };
+
+    // Propagate any shrink of iov[0] to the total return value; bytes
+    // that landed in iov[1+] are unchanged.
+    ret - (in_first - filtered_first)
 }
 
 /// Post-process a netlink read: if `fd` is a netlink socket and the
