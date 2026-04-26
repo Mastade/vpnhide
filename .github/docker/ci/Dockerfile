@@ -20,6 +20,7 @@ RUN apt-get update && \
         bc kmod cpio flex bison libssl-dev libelf-dev \
         binutils-aarch64-linux-gnu \
         clang-format \
+        shellcheck \
         git && \
     rm -rf /var/lib/apt/lists/*
 
@@ -44,15 +45,20 @@ RUN mkdir -p "${ANDROID_HOME}/cmdline-tools" && \
     chmod -R a+rx "${ANDROID_HOME}"
 
 # ── Rust toolchain (for zygisk) ──────────────────────────────────────
+# Pin both rustc and cargo-ndk versions so monthly image rebuilds don't
+# silently drift. Bump together with local toolchain when needed; CI
+# stays reproducible against an exact version.
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
+    PATH=/usr/local/cargo/bin:$PATH \
+    RUST_VERSION=1.95.0 \
+    CARGO_NDK_VERSION=4.1.2
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-        sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path && \
+        sh -s -- -y --default-toolchain "${RUST_VERSION}" --profile minimal --no-modify-path && \
     rustup target add aarch64-linux-android && \
     rustup component add rustfmt clippy && \
-    cargo install cargo-ndk --locked && \
+    cargo install cargo-ndk --version "${CARGO_NDK_VERSION}" --locked && \
     chmod -R a+w /usr/local/rustup /usr/local/cargo
 
 # ── Android NDK (for zygisk) ─────────────────────────────────────────

@@ -230,8 +230,13 @@ def rotate_fragments_into_history(
     version: str,
 ) -> dict:
     """Promote the current fragment set into `history[0]` with the given
-    version, then delete the fragment files. Returns the newly-released
-    entry.
+    version. Returns the newly-released entry.
+
+    Does NOT delete the fragment files — caller is responsible, and must
+    do so AFTER persisting `data` to disk via `save_json`. The split
+    keeps the operation recoverable: if save_json fails the fragments
+    are still on disk and the next run rebuilds the same history entry.
+    Use `delete_fragment_files` for the cleanup step.
     """
     released = {
         "version": version,
@@ -239,6 +244,11 @@ def rotate_fragments_into_history(
     }
     history = data.setdefault("history", [])
     history.insert(0, released)
+    return released
+
+
+def delete_fragment_files(fragments: list[dict]) -> None:
+    """Remove fragment files from disk. Call this AFTER `save_json` has
+    successfully persisted the rotated history."""
     for fragment in fragments:
         fragment["path"].unlink()
-    return released

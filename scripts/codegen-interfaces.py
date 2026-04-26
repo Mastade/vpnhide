@@ -461,9 +461,13 @@ def emit_rust(rules: list[Rule], tests: list[TestVector]) -> str:
     lines.append("    #[test]")
     lines.append("    fn generated_vectors() {")
     for t in tests:
-        expected = "true" if t.is_vpn else "false"
+        # `assert!(x, msg)` / `assert!(!x, msg)` instead of
+        # `assert_eq!(x, true/false, msg)` — clippy::bool_assert_comparison
+        # would otherwise fire on every generated row when contributors
+        # run `cargo clippy --tests`.
+        prefix = "" if t.is_vpn else "!"
         lines.append(
-            f"        assert_eq!(matches_vpn({rust_byte_lit(t.name)}), {expected}, "
+            f"        assert!({prefix}matches_vpn({rust_byte_lit(t.name)}), "
             f'"matches_vpn({t.name!r})");'
         )
     lines.append("    }")
