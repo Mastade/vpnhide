@@ -131,126 +131,117 @@ const RTA_OIF: u16 = 4;
 
 // ── check implementations ────────────────────────────────────────────
 
+/// Open an IPv4 datagram socket and pass it to `f`, then close it.
+/// Returns `CheckOutput::network_blocked(...)` if `socket()` returns
+/// ECONNREFUSED (no NETWORK permission), `CheckOutput::fail(...)` for
+/// any other socket() failure, otherwise the result of `f(fd)`.
+unsafe fn with_inet_dgram_socket(f: impl FnOnce(libc::c_int) -> CheckOutput) -> CheckOutput {
+    let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
+    if fd < 0 {
+        let err = last_os_errno();
+        if err == libc::ECONNREFUSED {
+            return CheckOutput::network_blocked(
+                "socket() returned ECONNREFUSED — network access disabled for this app",
+            );
+        }
+        return CheckOutput::fail(format!("cannot create socket: {}", last_os_error()));
+    }
+    let out = f(fd);
+    unsafe { libc::close(fd) };
+    out
+}
+
 #[uniffi::export]
 fn check_ioctl_siocgifflags() -> CheckOutput {
     unsafe {
-        let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
-        if fd < 0 {
+        with_inet_dgram_socket(|fd| {
+            let mut ifr: libc::ifreq = std::mem::zeroed();
+            let name = b"tun0\0";
+            ifr.ifr_name[..name.len()].copy_from_slice(&name.map(|b| b as libc::c_char));
+
+            let ret = libc::ioctl(fd, libc::SIOCGIFFLAGS as _, &ifr);
             let err = last_os_errno();
-            if err == libc::ECONNREFUSED {
-                return CheckOutput::network_blocked(
-                    "socket() returned ECONNREFUSED — network access disabled for this app",
-                );
-            }
-            return CheckOutput::fail(format!("cannot create socket: {}", last_os_error()));
-        }
 
-        let mut ifr: libc::ifreq = std::mem::zeroed();
-        let name = b"tun0\0";
-        ifr.ifr_name[..name.len()].copy_from_slice(&name.map(|b| b as libc::c_char));
-
-        let ret = libc::ioctl(fd, libc::SIOCGIFFLAGS as _, &ifr);
-        let err = last_os_errno();
-        libc::close(fd);
-
-        if ret < 0 {
-            if err == libc::ENODEV {
-                CheckOutput::pass(
-                    "ioctl(tun0, SIOCGIFFLAGS) returned ENODEV — interface not visible",
-                )
-            } else if err == libc::ENXIO {
-                CheckOutput::pass(
-                    "ioctl(tun0, SIOCGIFFLAGS) returned ENXIO — interface not visible",
-                )
+            if ret < 0 {
+                if err == libc::ENODEV {
+                    CheckOutput::pass(
+                        "ioctl(tun0, SIOCGIFFLAGS) returned ENODEV — interface not visible",
+                    )
+                } else if err == libc::ENXIO {
+                    CheckOutput::pass(
+                        "ioctl(tun0, SIOCGIFFLAGS) returned ENXIO — interface not visible",
+                    )
+                } else {
+                    CheckOutput::fail(format!("ioctl returned error {err} ({})", last_os_error()))
+                }
             } else {
-                CheckOutput::fail(format!("ioctl returned error {err} ({})", last_os_error()))
+                let flags = ifr.ifr_ifru.ifru_flags as u32;
+                CheckOutput::fail(format!(
+                    "tun0 is visible! flags=0x{flags:x} (IFF_UP={}, IFF_RUNNING={})",
+                    u8::from(flags & libc::IFF_UP as u32 != 0),
+                    u8::from(flags & libc::IFF_RUNNING as u32 != 0),
+                ))
             }
-        } else {
-            let flags = ifr.ifr_ifru.ifru_flags as u32;
-            CheckOutput::fail(format!(
-                "tun0 is visible! flags=0x{flags:x} (IFF_UP={}, IFF_RUNNING={})",
-                u8::from(flags & libc::IFF_UP as u32 != 0),
-                u8::from(flags & libc::IFF_RUNNING as u32 != 0),
-            ))
-        }
+        })
     }
 }
 
 #[uniffi::export]
 fn check_ioctl_siocgifmtu() -> CheckOutput {
     unsafe {
-        let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
-        if fd < 0 {
+        with_inet_dgram_socket(|fd| {
+            let mut ifr: libc::ifreq = std::mem::zeroed();
+            let name = b"tun0\0";
+            ifr.ifr_name[..name.len()].copy_from_slice(&name.map(|b| b as libc::c_char));
+
+            let ret = libc::ioctl(fd, libc::SIOCGIFMTU as _, &ifr);
             let err = last_os_errno();
-            if err == libc::ECONNREFUSED {
-                return CheckOutput::network_blocked(
-                    "socket() returned ECONNREFUSED — network access disabled for this app",
-                );
-            }
-            return CheckOutput::fail(format!("cannot create socket: {}", last_os_error()));
-        }
 
-        let mut ifr: libc::ifreq = std::mem::zeroed();
-        let name = b"tun0\0";
-        ifr.ifr_name[..name.len()].copy_from_slice(&name.map(|b| b as libc::c_char));
-
-        let ret = libc::ioctl(fd, libc::SIOCGIFMTU as _, &ifr);
-        let err = last_os_errno();
-        libc::close(fd);
-
-        if ret < 0 {
-            if err == libc::ENODEV || err == libc::ENXIO {
-                CheckOutput::pass("ioctl(tun0, SIOCGIFMTU) returned ENODEV — interface not visible")
+            if ret < 0 {
+                if err == libc::ENODEV || err == libc::ENXIO {
+                    CheckOutput::pass(
+                        "ioctl(tun0, SIOCGIFMTU) returned ENODEV — interface not visible",
+                    )
+                } else {
+                    CheckOutput::fail(format!("ioctl returned error {err} ({})", last_os_error()))
+                }
             } else {
-                CheckOutput::fail(format!("ioctl returned error {err} ({})", last_os_error()))
+                let mtu = ifr.ifr_ifru.ifru_mtu;
+                CheckOutput::fail(format!("tun0 is visible! MTU={mtu}"))
             }
-        } else {
-            let mtu = ifr.ifr_ifru.ifru_mtu;
-            CheckOutput::fail(format!("tun0 is visible! MTU={mtu}"))
-        }
+        })
     }
 }
 
 #[uniffi::export]
 fn check_ioctl_siocgifconf() -> CheckOutput {
     unsafe {
-        let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
-        if fd < 0 {
-            let err = last_os_errno();
-            if err == libc::ECONNREFUSED {
-                return CheckOutput::network_blocked(
-                    "socket() returned ECONNREFUSED — network access disabled for this app",
-                );
+        with_inet_dgram_socket(|fd| {
+            let mut buf = [0u8; 4096];
+            let mut ifc: libc::ifconf = std::mem::zeroed();
+            ifc.ifc_len = buf.len() as libc::c_int;
+            ifc.ifc_ifcu.ifcu_buf = buf.as_mut_ptr().cast();
+
+            if libc::ioctl(fd, libc::SIOCGIFCONF as _, &mut ifc) < 0 {
+                let e = last_os_error();
+                return CheckOutput::fail(format!("ioctl error: {e}"));
             }
-            return CheckOutput::fail(format!("cannot create socket: {}", last_os_error()));
-        }
 
-        let mut buf = [0u8; 4096];
-        let mut ifc: libc::ifconf = std::mem::zeroed();
-        ifc.ifc_len = buf.len() as libc::c_int;
-        ifc.ifc_ifcu.ifcu_buf = buf.as_mut_ptr().cast();
+            let count = ifc.ifc_len as usize / std::mem::size_of::<libc::ifreq>();
+            let reqs = std::slice::from_raw_parts(buf.as_ptr() as *const libc::ifreq, count);
 
-        if libc::ioctl(fd, libc::SIOCGIFCONF as _, &mut ifc) < 0 {
-            let e = last_os_error();
-            libc::close(fd);
-            return CheckOutput::fail(format!("ioctl error: {e}"));
-        }
-        libc::close(fd);
-
-        let count = ifc.ifc_len as usize / std::mem::size_of::<libc::ifreq>();
-        let reqs = std::slice::from_raw_parts(buf.as_ptr() as *const libc::ifreq, count);
-
-        let mut all = Vec::new();
-        let mut vpn = Vec::new();
-        for req in reqs {
-            let name = cstr_to_str(req.ifr_name.as_ptr());
-            if is_vpn_iface(&name) {
-                vpn.push(name.clone());
+            let mut all = Vec::new();
+            let mut vpn = Vec::new();
+            for req in reqs {
+                let name = cstr_to_str(req.ifr_name.as_ptr());
+                if is_vpn_iface(&name) {
+                    vpn.push(name.clone());
+                }
+                all.push(name);
             }
-            all.push(name);
-        }
 
-        format_iface_result(&all, &vpn, &format!("{count} interfaces visible:"))
+            format_iface_result(&all, &vpn, &format!("{count} interfaces visible:"))
+        })
     }
 }
 
@@ -489,83 +480,6 @@ fn check_netlink_getlink() -> CheckOutput {
             &all,
             &vpn,
             &format!("{} interfaces via netlink:", all.len()),
-        )
-    }
-}
-
-/// Same as check_netlink_getlink but uses recv (→ recvfrom) instead of recvmsg.
-/// Temporary check to verify the recvfrom hook works.
-#[uniffi::export]
-fn check_netlink_getlink_recv() -> CheckOutput {
-    let fd = match open_netlink() {
-        Ok(fd) => fd,
-        Err(out) => return out,
-    };
-
-    unsafe {
-        #[repr(C)]
-        struct Req {
-            nlh: libc::nlmsghdr,
-            ifm: Ifinfomsg,
-        }
-        let mut req: Req = std::mem::zeroed();
-        req.nlh.nlmsg_len = std::mem::size_of::<Req>() as u32;
-        req.nlh.nlmsg_type = libc::RTM_GETLINK;
-        req.nlh.nlmsg_flags = (libc::NLM_F_REQUEST | libc::NLM_F_DUMP) as u16;
-        req.nlh.nlmsg_seq = 1;
-
-        if libc::send(
-            fd,
-            std::ptr::from_ref(&req).cast(),
-            req.nlh.nlmsg_len as usize,
-            0,
-        ) < 0
-        {
-            let e = last_os_error();
-            libc::close(fd);
-            return CheckOutput::fail(format!("send error: {e}"));
-        }
-
-        let mut buf = [0u8; 32768];
-        let mut all = Vec::new();
-        let mut vpn = Vec::new();
-        let hdr_plus_ifinfo =
-            std::mem::size_of::<libc::nlmsghdr>() + std::mem::size_of::<Ifinfomsg>();
-
-        loop {
-            let len = libc::recv(fd, buf.as_mut_ptr().cast(), buf.len(), 0);
-            if len <= 0 {
-                break;
-            }
-            let cont = parse_netlink_msgs(
-                &buf,
-                len as usize,
-                libc::RTM_NEWLINK,
-                |b, offset, msg_len| {
-                    let data_start = offset + hdr_plus_ifinfo;
-                    let msg_end = offset + msg_len;
-                    for_each_rtattr(b, data_start, msg_end, |rta, rta_off| {
-                        if rta.rta_type == IFLA_IFNAME {
-                            let name =
-                                cstr_to_str(b.as_ptr().add(rta_off + 4) as *const libc::c_char);
-                            if is_vpn_iface(&name) {
-                                vpn.push(name.clone());
-                            }
-                            all.push(name);
-                        }
-                    });
-                },
-            );
-            if !cont {
-                break;
-            }
-        }
-        libc::close(fd);
-
-        format_iface_result(
-            &all,
-            &vpn,
-            &format!("{} interfaces via netlink (recv):", all.len()),
         )
     }
 }
