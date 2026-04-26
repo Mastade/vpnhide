@@ -25,6 +25,7 @@ import dev.okhsunrog.vpnhide.checks.checkProcNetTcp6
 import dev.okhsunrog.vpnhide.checks.checkProcNetUdp
 import dev.okhsunrog.vpnhide.checks.checkProcNetUdp6
 import dev.okhsunrog.vpnhide.checks.checkSysClassNet
+import dev.okhsunrog.vpnhide.generated.IfaceLists
 import java.io.File
 
 // ── Domain types — invalid states are unrepresentable ────────────────────
@@ -1084,7 +1085,7 @@ internal fun loadDashboardState(
     }
 
     // ── Protection checks ──
-    val vpnActive = isVpnActiveSync()
+    val vpnActive = isVpnActiveBlocking()
     VpnHideLog.i(TAG, "vpnActive=$vpnActive selfNeedsRestart=$selfNeedsRestart")
 
     val protection: ProtectionCheck =
@@ -1131,26 +1132,6 @@ internal fun loadDashboardState(
         protection = protection,
         issues = issues,
     )
-}
-
-private fun isVpnActiveSync(): Boolean {
-    val (exitCode, output) = suExec("ls /sys/class/net/ 2>/dev/null")
-    if (exitCode != 0) return false
-    val vpnPrefixes = listOf("tun", "wg", "ppp", "tap", "ipsec", "xfrm")
-    val vpnIfaces =
-        output.lines().map { it.trim() }.filter { name ->
-            name.isNotEmpty() && vpnPrefixes.any { name.startsWith(it) }
-        }
-    if (vpnIfaces.isEmpty()) {
-        VpnHideLog.d(TAG, "isVpnActive: no VPN interfaces found")
-        return false
-    }
-    return vpnIfaces.any { iface ->
-        val (_, state) = suExec("cat /sys/class/net/$iface/operstate 2>/dev/null")
-        val up = state.trim() == "unknown" || state.trim() == "up"
-        VpnHideLog.d(TAG, "isVpnActive: $iface operstate=${state.trim()} up=$up")
-        up
-    }
 }
 
 private fun runNativeProtectionCheck(): NativeResult {
@@ -1255,8 +1236,7 @@ private fun runJavaProtectionCheck(cm: ConnectivityManager): JavaResult {
 
     val lp = cm.getLinkProperties(net)
     val ifname = lp?.interfaceName
-    val vpnPrefixes = listOf("tun", "wg", "ppp", "tap", "ipsec", "xfrm")
-    val vpnIfname = ifname != null && vpnPrefixes.any { ifname.startsWith(it) }
+    val vpnIfname = ifname != null && IfaceLists.isVpnIface(ifname)
     if (vpnIfname) failed++
     VpnHideLog.d(TAG, "java: linkProperties ifname=$ifname isVpn=$vpnIfname")
 
