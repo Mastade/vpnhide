@@ -33,10 +33,10 @@ persistent dirs of section 2.
 ### `/data/adb/modules/vpnhide_zygisk/`
 - `module.prop` — module metadata.
 - `customize.sh` — install-time hook; seeds persistent dir, migrates legacy targets.
-- `service.sh` — boot script; copies persistent `targets.txt` into module dir so the Zygisk loader's `get_module_dir()` fd sees it.
+- `service.sh` — boot script; copies persistent `targets.txt` and `debug_logging` into module dir so the Zygisk loader's `get_module_dir()` fd sees them.
 - `zygisk/arm64-v8a.so` — Rust cdylib injected into every forked app by NeoZygisk.
 - `targets.txt` — **boot-time copy** of the canonical persistent file (`/data/adb/vpnhide_zygisk/targets.txt`). Loader reads via fd, not path. (`zygisk/module/service.sh`, `zygisk/src/lib.rs`)
-- `debug_logging` — `"0"` or `"1"`. Written by app (`DebugLoggingPrefs.kt:78-82`), read by zygisk module on init.
+- `debug_logging` — `"0"` or `"1"`. **Boot-time copy** of `/data/adb/vpnhide_zygisk/debug_logging` (canonical). The app also writes both paths directly via su on every toggle, so the module-dir mirror stays current between reinstall and reboot. Read by zygisk module on init via the module dir fd.
 
 ### `/data/adb/modules/vpnhide_ports/`
 - `module.prop`.
@@ -69,6 +69,7 @@ was written this boot" vs. "stale from last boot".
 | File | Format | Writer | Reader | Lifetime |
 |---|---|---|---|---|
 | `targets.txt` | one pkg per line | app via su; `zygisk/module/customize.sh` migrates from legacy in-module location | copied into module dir by `zygisk/module/service.sh` at boot | persistent |
+| `debug_logging` | single byte `"0"` or `"1"` | app via su (`DebugLoggingPrefs.kt::writeDebugFlagFiles`, part of the persistent toggle fan-out) | copied into module dir by `zygisk/module/service.sh` at boot, where the .so reads it via `get_module_dir()` fd | persistent |
 
 ### `/data/adb/vpnhide_ports/`
 | File | Format | Writer | Reader | Lifetime |
@@ -123,17 +124,28 @@ applyDebugLoggingRuntime(enabled)
     ├─ VpnHideLog.enabled = enabled                          (1) app process — instant, in-memory
     └─ writeDebugFlagFiles (one batched su):
          ├─ /data/system/vpnhide_debug_logging               (2) system_server — ~10ms via inotify FileObserver
-         ├─ /data/adb/modules/vpnhide_zygisk/debug_logging   (3) zygisk — applies on next fork of each target app
+         ├─ /data/adb/vpnhide_zygisk/debug_logging           (3a) zygisk persistent — survives module reinstall
+         ├─ /data/adb/modules/vpnhide_zygisk/debug_logging   (3b) zygisk module-dir mirror — read by .so on next fork
          └─ /proc/vpnhide_debug                              (4) kmod — instant if loaded, else no-op
 ```
 
 `/data/system/vpnhide_debug_logging` is the canonical persistent
-source-of-truth on disk. `kmod/module/service.sh` re-seeds
-`/proc/vpnhide_debug` from it at every boot, so a persistent ON
-survives reboots without the app needing to open. `MainActivity.
-onCreate` re-propagates from SharedPrefs to the runtime files at
-every launch, covering the case where a sink file got wiped
-out-of-band (e.g. zygisk module reinstall).
+source-of-truth on disk for everything except zygisk; zygisk has its
+own canonical at `/data/adb/vpnhide_zygisk/debug_logging` because
+the .so reads via the module-dir fd, not via system_data_file path.
+
+Boot-time re-seeding makes the persistent toggle survive reboots
+without the app needing to open:
+
+- `kmod/module/service.sh` copies `/data/system/vpnhide_debug_logging`
+  → `/proc/vpnhide_debug` (in-kernel state lost on every boot).
+- `zygisk/module/service.sh` copies `/data/adb/vpnhide_zygisk/debug_logging`
+  → `/data/adb/modules/vpnhide_zygisk/debug_logging` (module-dir
+  mirror lost on every module reinstall).
+
+`MainActivity.onCreate` re-propagates from SharedPrefs to all four
+sinks at every app launch as a safety-net for "user reinstalled a
+module mid-session and didn't reboot before opening the app".
 
 Errors (`Log.e` / `HookLog.e` / Rust `error!`) always print
 regardless of the toggle — these fire at most once per process /
