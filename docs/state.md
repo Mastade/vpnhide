@@ -102,13 +102,43 @@ enumerable + readable.
 | `vpnhide_hidden_pkgs.txt` | one pkg per line | app via su when user picks "Apps to hide from PackageManager" | `PackageVisibilityHooks.kt:124` + FileObserver | persistent |
 | `vpnhide_observer_uids.txt` | one UID per line | app via su | `PackageVisibilityHooks.kt:111` + FileObserver | persistent |
 | `vpnhide_hook_active` | `key=value`: `version`, `boot_id`, `timestamp`, `aosp_sdk`, optional `broken_fields` | `HookEntry.kt:312-339` `writeHookStatusFile` (in system_server) | app dashboard (`DashboardData.kt:805` reads via su); compares `boot_id` to detect stale records | per-boot |
-| `vpnhide_debug_logging` | single byte `"0"` or `"1"` | app via su (`DebugLoggingPrefs.kt:69-73`) | LSPosed hooks via `HookLog.reload` + FileObserver (`HookLog.kt:30-43`); also surfaced as a Dashboard warning (`DashboardData.kt:991`) | persistent |
+| `vpnhide_debug_logging` | single byte `"0"` or `"1"` | app via su (`DebugLoggingPrefs.kt::writeDebugFlagFiles`) | LSPosed hooks via `HookLog.reload` + FileObserver (`HookLog.kt:30-43`); `kmod/module/service.sh` re-seeds `/proc/vpnhide_debug` from this file at boot; surfaced as a Dashboard warning (`DashboardData.kt:991`) | persistent |
 
 **FileObservers** in `HookEntry.kt` and `PackageVisibilityHooks.kt`
 watch `/data/system/` for `CREATE | CLOSE_WRITE | MOVED_TO | MODIFY`
 events. Saves from the app trigger inotify, which invalidates the
 in-process cache, so a Save propagates to running system_server
 hooks **without any IPC or restart**.
+
+### Debug-logging fan-out
+
+The "Debug logging" toggle in Diagnostics drives **four sinks** from
+one writer (`DebugLoggingPrefs.kt::applyDebugLoggingRuntime`):
+
+```
+toggle ON/OFF
+    │
+    ▼
+applyDebugLoggingRuntime(enabled)
+    ├─ VpnHideLog.enabled = enabled                          (1) app process — instant, in-memory
+    └─ writeDebugFlagFiles (one batched su):
+         ├─ /data/system/vpnhide_debug_logging               (2) system_server — ~10ms via inotify FileObserver
+         ├─ /data/adb/modules/vpnhide_zygisk/debug_logging   (3) zygisk — applies on next fork of each target app
+         └─ /proc/vpnhide_debug                              (4) kmod — instant if loaded, else no-op
+```
+
+`/data/system/vpnhide_debug_logging` is the canonical persistent
+source-of-truth on disk. `kmod/module/service.sh` re-seeds
+`/proc/vpnhide_debug` from it at every boot, so a persistent ON
+survives reboots without the app needing to open. `MainActivity.
+onCreate` re-propagates from SharedPrefs to the runtime files at
+every launch, covering the case where a sink file got wiped
+out-of-band (e.g. zygisk module reinstall).
+
+Errors (`Log.e` / `HookLog.e` / Rust `error!`) always print
+regardless of the toggle — these fire at most once per process /
+hook install and are the only signal we have when "hooks didn't
+attach"-class problems happen.
 
 ---
 
@@ -119,12 +149,14 @@ removed at module exit. Mode `0600`, root-only.
 
 | Path | Format | Writer | Reader (kernel side) |
 |---|---|---|---|
-| `/proc/vpnhide_targets` | one UID per line; write replaces full set | root userspace: `kmod/module/service.sh:78` writes resolved UIDs at boot; LSPosed app via su after Save | `vpnhide_kmod.c` `targets_write` handler — caches UIDs in kernel memory, consulted by every kretprobe handler |
-| `/proc/vpnhide_debug` | `"1"` enables, `"0"` disables verbose `pr_info` from kretprobes | LSPosed Diagnostics screen during Collect-debug-log capture (`DiagnosticsScreen.kt`) | `READ_ONCE(debug_enabled)` in every probe handler |
+| `/proc/vpnhide_targets` | one UID per line; write replaces full set | root userspace: `kmod/module/service.sh` writes resolved UIDs at boot; LSPosed app via su after Save | `vpnhide_kmod.c` `targets_write` handler — caches UIDs in kernel memory, consulted by every kretprobe handler |
+| `/proc/vpnhide_debug` | `"1"` enables, `"0"` disables verbose `pr_info` from kretprobes | app via `DebugLoggingPrefs.kt::writeDebugFlagFiles` (part of the persistent toggle fan-out, see § 3); `kmod/module/service.sh` re-seeds at boot from `/data/system/vpnhide_debug_logging` | `READ_ONCE(debug_enabled)` in every probe handler |
 
 Both files are **per-boot, in-kernel state only**. Unloading the
-module (or rebooting) wipes the cached UIDs; service.sh re-seeds at
-next boot from `/data/adb/vpnhide_kmod/targets.txt`.
+module (or rebooting) wipes the in-kernel state; service.sh re-seeds
+both at next boot — `/proc/vpnhide_targets` from
+`/data/adb/vpnhide_kmod/targets.txt`, and `/proc/vpnhide_debug` from
+`/data/system/vpnhide_debug_logging`.
 
 ---
 

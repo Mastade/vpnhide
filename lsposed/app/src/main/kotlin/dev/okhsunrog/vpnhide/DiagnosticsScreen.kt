@@ -909,31 +909,28 @@ private suspend fun exportDebugZip(
     selfNeedsRestart: Boolean,
 ): File? =
     withContext(Dispatchers.IO) {
-        // Force-enable app/lsposed/zygisk debug logging while the capture
-        // runs so the dump contains VpnHide-tagged lines even when the
-        // user's persistent toggle is OFF (the default). We restore to
-        // whatever the SharedPreferences say at the end — if the user
-        // happens to flip the UI toggle mid-capture, we honor their
-        // final choice instead of blindly rolling back.
+        // Force-enable debug logging across all four sinks (app, system_server,
+        // zygisk, kmod) while the capture runs so the dump contains VpnHide-
+        // tagged lines + verbose dmesg even when the user's persistent toggle
+        // is OFF (the default). We restore to whatever the SharedPreferences
+        // say at the end — if the user happens to flip the UI toggle mid-
+        // capture, we honor their final choice instead of blindly rolling
+        // back. applyDebugLoggingRuntime drives all four sinks uniformly, so
+        // there's no ad-hoc /proc/vpnhide_debug flip here anymore.
         val loggingWasForced = !VpnHideLog.enabled
         if (loggingWasForced) applyDebugLoggingRuntime(true)
         try {
-            // 1. Enable kmod debug logging
-            suExec("echo 1 > /proc/vpnhide_debug 2>/dev/null")
-
-            // 2. Clear dmesg so we only capture fresh output
+            // 1. Clear dmesg so we only capture fresh output from the
+            //    kmod hooks fired by runAllChecks below.
             suExec("dmesg -c > /dev/null 2>&1")
 
-            // 3. Run all diagnostic checks (this triggers kmod hooks)
+            // 2. Run all diagnostic checks (this triggers kmod hooks)
             val checkResults = runAllChecks(cm, context)
 
-            // 4. Capture dmesg right after checks
+            // 3. Capture dmesg right after checks
             val (_, dmesg) = suExec("dmesg 2>/dev/null")
 
-            // 5. Disable kmod debug logging
-            suExec("echo 0 > /proc/vpnhide_debug 2>/dev/null")
-
-            // 6. Collect additional info
+            // 4. Collect additional info
             val files = mutableMapOf<String, String>()
 
             // dmesg (vpnhide lines only + full for context)
