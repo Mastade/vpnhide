@@ -33,10 +33,10 @@ persistent dirs of section 2.
 ### `/data/adb/modules/vpnhide_zygisk/`
 - `module.prop` — module metadata.
 - `customize.sh` — install-time hook; seeds persistent dir, migrates legacy targets.
-- `service.sh` — boot script; copies persistent `targets.txt` into module dir so the Zygisk loader's `get_module_dir()` fd sees it.
+- `service.sh` — boot script; copies persistent `targets.txt` and `debug_logging` into module dir so the Zygisk loader's `get_module_dir()` fd sees them.
 - `zygisk/arm64-v8a.so` — Rust cdylib injected into every forked app by NeoZygisk.
 - `targets.txt` — **boot-time copy** of the canonical persistent file (`/data/adb/vpnhide_zygisk/targets.txt`). Loader reads via fd, not path. (`zygisk/module/service.sh`, `zygisk/src/lib.rs`)
-- `debug_logging` — `"0"` or `"1"`. Written by app (`DebugLoggingPrefs.kt:78-82`), read by zygisk module on init.
+- `debug_logging` — `"0"` or `"1"`. **Boot-time copy** of `/data/adb/vpnhide_zygisk/debug_logging` (canonical). The app also writes both paths directly via su on every toggle, so the module-dir mirror stays current between reinstall and reboot. Read by zygisk module on init via the module dir fd.
 
 ### `/data/adb/modules/vpnhide_ports/`
 - `module.prop`.
@@ -69,6 +69,7 @@ was written this boot" vs. "stale from last boot".
 | File | Format | Writer | Reader | Lifetime |
 |---|---|---|---|---|
 | `targets.txt` | one pkg per line | app via su; `zygisk/module/customize.sh` migrates from legacy in-module location | copied into module dir by `zygisk/module/service.sh` at boot | persistent |
+| `debug_logging` | single byte `"0"` or `"1"` | app via su (`DebugLoggingPrefs.kt::writeDebugFlagFiles`, part of the persistent toggle fan-out) | copied into module dir by `zygisk/module/service.sh` at boot, where the .so reads it via `get_module_dir()` fd | persistent |
 
 ### `/data/adb/vpnhide_ports/`
 | File | Format | Writer | Reader | Lifetime |
@@ -102,13 +103,54 @@ enumerable + readable.
 | `vpnhide_hidden_pkgs.txt` | one pkg per line | app via su when user picks "Apps to hide from PackageManager" | `PackageVisibilityHooks.kt:124` + FileObserver | persistent |
 | `vpnhide_observer_uids.txt` | one UID per line | app via su | `PackageVisibilityHooks.kt:111` + FileObserver | persistent |
 | `vpnhide_hook_active` | `key=value`: `version`, `boot_id`, `timestamp`, `aosp_sdk`, optional `broken_fields` | `HookEntry.kt:312-339` `writeHookStatusFile` (in system_server) | app dashboard (`DashboardData.kt:805` reads via su); compares `boot_id` to detect stale records | per-boot |
-| `vpnhide_debug_logging` | single byte `"0"` or `"1"` | app via su (`DebugLoggingPrefs.kt:69-73`) | LSPosed hooks via `HookLog.reload` + FileObserver (`HookLog.kt:30-43`); also surfaced as a Dashboard warning (`DashboardData.kt:991`) | persistent |
+| `vpnhide_debug_logging` | single byte `"0"` or `"1"` | app via su (`DebugLoggingPrefs.kt::writeDebugFlagFiles`) | LSPosed hooks via `HookLog.reload` + FileObserver (`HookLog.kt:30-43`); `kmod/module/service.sh` re-seeds `/proc/vpnhide_debug` from this file at boot; surfaced as a Dashboard warning (`DashboardData.kt:991`) | persistent |
 
 **FileObservers** in `HookEntry.kt` and `PackageVisibilityHooks.kt`
 watch `/data/system/` for `CREATE | CLOSE_WRITE | MOVED_TO | MODIFY`
 events. Saves from the app trigger inotify, which invalidates the
 in-process cache, so a Save propagates to running system_server
 hooks **without any IPC or restart**.
+
+### Debug-logging fan-out
+
+The "Debug logging" toggle in Diagnostics drives **four sinks** from
+one writer (`DebugLoggingPrefs.kt::applyDebugLoggingRuntime`):
+
+```
+toggle ON/OFF
+    │
+    ▼
+applyDebugLoggingRuntime(enabled)
+    ├─ VpnHideLog.enabled = enabled                          (1) app process — instant, in-memory
+    └─ writeDebugFlagFiles (one batched su):
+         ├─ /data/system/vpnhide_debug_logging               (2) system_server — ~10ms via inotify FileObserver
+         ├─ /data/adb/vpnhide_zygisk/debug_logging           (3a) zygisk persistent — survives module reinstall
+         ├─ /data/adb/modules/vpnhide_zygisk/debug_logging   (3b) zygisk module-dir mirror — read by .so on next fork
+         └─ /proc/vpnhide_debug                              (4) kmod — instant if loaded, else no-op
+```
+
+`/data/system/vpnhide_debug_logging` is the canonical persistent
+source-of-truth on disk for everything except zygisk; zygisk has its
+own canonical at `/data/adb/vpnhide_zygisk/debug_logging` because
+the .so reads via the module-dir fd, not via system_data_file path.
+
+Boot-time re-seeding makes the persistent toggle survive reboots
+without the app needing to open:
+
+- `kmod/module/service.sh` copies `/data/system/vpnhide_debug_logging`
+  → `/proc/vpnhide_debug` (in-kernel state lost on every boot).
+- `zygisk/module/service.sh` copies `/data/adb/vpnhide_zygisk/debug_logging`
+  → `/data/adb/modules/vpnhide_zygisk/debug_logging` (module-dir
+  mirror lost on every module reinstall).
+
+`MainActivity.onCreate` re-propagates from SharedPrefs to all four
+sinks at every app launch as a safety-net for "user reinstalled a
+module mid-session and didn't reboot before opening the app".
+
+Errors (`Log.e` / `HookLog.e` / Rust `error!`) always print
+regardless of the toggle — these fire at most once per process /
+hook install and are the only signal we have when "hooks didn't
+attach"-class problems happen.
 
 ---
 
@@ -119,12 +161,14 @@ removed at module exit. Mode `0600`, root-only.
 
 | Path | Format | Writer | Reader (kernel side) |
 |---|---|---|---|
-| `/proc/vpnhide_targets` | one UID per line; write replaces full set | root userspace: `kmod/module/service.sh:78` writes resolved UIDs at boot; LSPosed app via su after Save | `vpnhide_kmod.c` `targets_write` handler — caches UIDs in kernel memory, consulted by every kretprobe handler |
-| `/proc/vpnhide_debug` | `"1"` enables, `"0"` disables verbose `pr_info` from kretprobes | LSPosed Diagnostics screen during Collect-debug-log capture (`DiagnosticsScreen.kt`) | `READ_ONCE(debug_enabled)` in every probe handler |
+| `/proc/vpnhide_targets` | one UID per line; write replaces full set | root userspace: `kmod/module/service.sh` writes resolved UIDs at boot; LSPosed app via su after Save | `vpnhide_kmod.c` `targets_write` handler — caches UIDs in kernel memory, consulted by every kretprobe handler |
+| `/proc/vpnhide_debug` | `"1"` enables, `"0"` disables verbose `pr_info` from kretprobes | app via `DebugLoggingPrefs.kt::writeDebugFlagFiles` (part of the persistent toggle fan-out, see § 3); `kmod/module/service.sh` re-seeds at boot from `/data/system/vpnhide_debug_logging` | `READ_ONCE(debug_enabled)` in every probe handler |
 
 Both files are **per-boot, in-kernel state only**. Unloading the
-module (or rebooting) wipes the cached UIDs; service.sh re-seeds at
-next boot from `/data/adb/vpnhide_kmod/targets.txt`.
+module (or rebooting) wipes the in-kernel state; service.sh re-seeds
+both at next boot — `/proc/vpnhide_targets` from
+`/data/adb/vpnhide_kmod/targets.txt`, and `/proc/vpnhide_debug` from
+`/data/system/vpnhide_debug_logging`.
 
 ---
 

@@ -119,3 +119,15 @@ for f in "$SS_UIDS_FILE" \
         chcon u:object_r:system_data_file:s0 "$f" 2>/dev/null
     fi
 done
+
+# Re-seed /proc/vpnhide_debug from the persistent toggle flag the app
+# maintains. /proc/vpnhide_debug is per-boot in-kernel state — without
+# this re-seed, a user with "Debug logging" turned ON would silently
+# get OFF after every reboot until they re-opened the app (which is
+# what triggers the in-app re-propagation in MainActivity.onCreate).
+# Same model as targets.txt → /proc/vpnhide_targets above: persistent
+# file is canonical, /proc gets reseeded each boot.
+SS_DEBUG_LOGGING="/data/system/vpnhide_debug_logging"
+if [ -e /proc/vpnhide_debug ] && [ -f "$SS_DEBUG_LOGGING" ]; then
+    cat "$SS_DEBUG_LOGGING" > /proc/vpnhide_debug 2>/dev/null
+fi

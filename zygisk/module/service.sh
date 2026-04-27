@@ -4,6 +4,7 @@
 # lsposed targets → /data/system/vpnhide_uids.txt
 
 ZYGISK_TARGETS="/data/adb/vpnhide_zygisk/targets.txt"
+ZYGISK_DEBUG_LOGGING="/data/adb/vpnhide_zygisk/debug_logging"
 LSPOSED_TARGETS="/data/adb/vpnhide_lsposed/targets.txt"
 MODULE_DIR="${0%/*}"
 SS_UIDS_FILE="/data/system/vpnhide_uids.txt"
@@ -11,6 +12,15 @@ SS_UIDS_FILE="/data/system/vpnhide_uids.txt"
 # Copy zygisk targets to module dir so Zygisk can read via get_module_dir() fd.
 if [ -f "$ZYGISK_TARGETS" ]; then
     cp "$ZYGISK_TARGETS" "$MODULE_DIR/targets.txt" 2>/dev/null
+fi
+
+# Copy the persistent debug-logging flag into the module dir, same
+# pattern as targets.txt above — the .so reads it via the module dir
+# fd on every fork. The persistent file lives outside the module dir
+# so it survives module reinstall; this re-seed restores the module-
+# dir copy after a reinstall, before the user opens the app.
+if [ -f "$ZYGISK_DEBUG_LOGGING" ]; then
+    cp "$ZYGISK_DEBUG_LOGGING" "$MODULE_DIR/debug_logging" 2>/dev/null
 fi
 
 # Wait until PackageManager has actually indexed user-installed apps.
