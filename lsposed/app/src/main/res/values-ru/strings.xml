@@ -102,6 +102,7 @@
     <string name="dashboard_issue_lsposed_not_enabled">VPN Hide найден в LSPosed/Vector, но модуль выключен. Включите VPN Hide в LSPosed/Vector и оставьте в scope System Framework.</string>
     <string name="dashboard_issue_lsposed_no_system_scope">VPN Hide включён в LSPosed/Vector, но в его scope отсутствует System Framework. Добавьте System Framework в scope модуля VPN Hide в LSPosed/Vector.</string>
     <string name="dashboard_issue_lsposed_extra_scope">VPN Hide в LSPosed/Vector должен быть включён только для System Framework. Уберите из scope модуля VPN Hide эти приложения: %1$s. Для фильтрации используйте Защита → Туннели в VPN Hide.</string>
+    <string name="dashboard_issue_lsposed_field_rename">Обнаружено переименование AOSP-поля на Android SDK %2$s: %1$s. Java-защита отключена для затронутых хуков (они пропущены при установке, чтобы не спамить logcat NoSuchFieldError на каждом вызове). Пожалуйста, заведите issue на github.com/okhsunrog/vpnhide/issues с этим списком — это нужно, чтобы обновить хуки под вашу версию Android.</string>
     <string name="dashboard_issue_no_targets">Целевые приложения не настроены. Перейдите в Защита → Туннели.</string>
     <string name="dashboard_issue_ports_no_observers">Модуль скрытия портов установлен, но наблюдатели не настроены. Перейдите в Защита → Порты.</string>
     <string name="dashboard_issue_version_mismatch">Несоответствие версий LSPosed модуля: запущена %1$s, установлена %2$s. Перезагрузите устройство для обновления.</string>

@@ -5,6 +5,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkInfo
 import android.net.RouteInfo
 import android.os.Binder
+import android.os.Build
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
@@ -51,9 +52,9 @@ class HookEntry : IXposedHookLoadPackage {
         if (hookInstalled.compareAndSet(false, true)) {
             HookLog.install()
             HookLog.i("VpnHide: system_server detected, installing Binder hooks")
-            installSystemServerHooks()
+            val brokenFields = installSystemServerHooks()
             tryHook("PackageVisibility") { PackageVisibilityHooks.install(lpparam.classLoader) }
-            writeHookStatusFile()
+            writeHookStatusFile(brokenFields)
         }
     }
 
@@ -199,30 +200,139 @@ class HookEntry : IXposedHookLoadPackage {
         systemServerTargetUids = null
     }
 
-    private fun installSystemServerHooks() {
-        tryHook("NC.writeToParcel") { hookNCWriteToParcel() }
-        tryHook("NI.writeToParcel") { hookNIWriteToParcel() }
-        tryHook("LP.writeToParcel") { hookLPWriteToParcel() }
+    // Smoke-check at install time: every private AOSP field/ctor we touch
+    // by reflection in the writeToParcel hooks. Returns the keys that
+    // failed (missing or wrong-typed). Empty list = all good.
+    //
+    // Per-hook gates below skip installing a hook entirely when its
+    // critical reflection broke — silent fail-open is preferable to
+    // throwing NoSuchFieldError on every writeToParcel call (system_server
+    // gets that on every NetworkCapabilities IPC, target or not). The
+    // dashboard surfaces the broken_fields list as a red error so the
+    // user can see and report the AOSP drift.
+    private fun installSystemServerHooks(): List<String> {
+        val brokenFields = runReflectionSmokeCheck()
+        if (brokenFields.isNotEmpty()) {
+            HookLog.e("VpnHide: reflection smoke-check found broken keys: $brokenFields")
+        }
+
+        // Match a probe key against either an exact entry in `broken` or
+        // an entry with a `:type=...` suffix (wrong-typed field).
+        fun anyBroken(critical: Set<String>): Boolean = brokenFields.any { it.substringBefore(':') in critical }
+
+        // LP: mIfaceName + copy ctor are critical. mRoutes / mStackedLinks
+        // are non-critical — the existing inner try/catch in
+        // sanitizeLinkProperties already lets the rest of the sanitizer
+        // proceed when those are absent.
+        if (anyBroken(LP_CRITICAL_KEYS)) {
+            HookLog.e("VpnHide: LP.writeToParcel hook SKIPPED — critical reflection broken")
+        } else {
+            tryHook("LP.writeToParcel") { hookLPWriteToParcel() }
+        }
+
+        // NC: the two long bitmasks are critical. mTransportInfo is
+        // non-critical because it doesn't exist on API 28 (Android 9)
+        // and the existing inner try/catch in hookNCWriteToParcel already
+        // tolerates its absence on API 29+ if AOSP renames it later.
+        if (anyBroken(NC_CRITICAL_KEYS)) {
+            HookLog.e("VpnHide: NC.writeToParcel hook SKIPPED — critical reflection broken")
+        } else {
+            tryHook("NC.writeToParcel") { hookNCWriteToParcel() }
+        }
+
+        // NI: every field + ctor is critical — the hook body has no
+        // inner try/catch around the per-field setIntField/setBooleanField
+        // calls, so any rename would fail-open per call with logcat spam.
+        if (anyBroken(NI_CRITICAL_KEYS)) {
+            HookLog.e("VpnHide: NI.writeToParcel hook SKIPPED — critical reflection broken")
+        } else {
+            tryHook("NI.writeToParcel") { hookNIWriteToParcel() }
+        }
+
         tryHook("FileObserver") { watchTargetUidsFile() }
+        return brokenFields
+    }
+
+    private data class FieldProbe(
+        val key: String,
+        val clazz: Class<*>,
+        val name: String,
+        // If the device's SDK is below this, the probe is skipped entirely
+        // (not "found", not "broken" — not applicable). Used for fields
+        // introduced after our minSdk floor (e.g. mTransportInfo at API 29).
+        // Listed before `typeCheck` so the latter stays the last parameter
+        // — that lets call sites use trailing-lambda syntax for the probe
+        // without having to name `typeCheck =` every time.
+        val minSdk: Int = 0,
+        // Field-type compatibility predicate. For collections we use
+        // isAssignableFrom() so AOSP swapping ArrayList → LinkedList stays OK.
+        val typeCheck: (Class<*>) -> Boolean,
+    )
+
+    private data class CtorProbe(
+        val key: String,
+        val clazz: Class<*>,
+        val params: Array<Class<*>>,
+    )
+
+    private fun runReflectionSmokeCheck(): List<String> {
+        val broken = mutableListOf<String>()
+        for (probe in FIELD_PROBES) {
+            if (Build.VERSION.SDK_INT < probe.minSdk) continue
+            val field =
+                try {
+                    XposedHelpers.findField(probe.clazz, probe.name)
+                } catch (_: NoSuchFieldError) {
+                    broken += probe.key
+                    continue
+                }
+            if (!probe.typeCheck(field.type)) {
+                // Suffix carries the actual type to help debug AOSP-drift
+                // bug reports without rebuilding/instrumenting the device.
+                broken += "${probe.key}:type=${field.type.name}"
+            }
+        }
+        for (probe in CTOR_PROBES) {
+            try {
+                probe.clazz.getDeclaredConstructor(*probe.params)
+            } catch (_: NoSuchMethodException) {
+                broken += probe.key
+            }
+        }
+        return broken
     }
 
     /**
      * Write a status file so the VPN Hide app can verify hooks are active.
-     * Includes boot_id to distinguish stale files from previous boots.
+     * Includes boot_id to distinguish stale files from previous boots,
+     * aosp_sdk for diagnostic context in bug reports, and (only when
+     * non-empty) broken_fields listing the reflection probes that the
+     * smoke-check rejected this boot.
      */
-    private fun writeHookStatusFile() {
+    private fun writeHookStatusFile(brokenFields: List<String>) {
         try {
             val bootId = File("/proc/sys/kernel/random/boot_id").readText().trim()
             val timestamp = System.currentTimeMillis() / 1000
             val version = BuildConfig.VERSION_NAME
-            val content = "version=$version\nboot_id=$bootId\ntimestamp=$timestamp\n"
+            val sdk = Build.VERSION.SDK_INT
+            val sb = StringBuilder()
+            sb.append("version=").append(version).append('\n')
+            sb.append("boot_id=").append(bootId).append('\n')
+            sb.append("timestamp=").append(timestamp).append('\n')
+            sb.append("aosp_sdk=").append(sdk).append('\n')
+            if (brokenFields.isNotEmpty()) {
+                sb.append("broken_fields=").append(brokenFields.joinToString(",")).append('\n')
+            }
             val statusFile = File(HOOK_STATUS_FILE)
-            statusFile.writeText(content)
+            statusFile.writeText(sb.toString())
             // Don't expose this file to untrusted apps — anti-tamper SDKs
             // scan /data/system/ for known marker filenames. The VPN Hide
             // app reads it via root (`suExec("cat ...")`), see
             // DashboardData.kt — same pattern as vpnhide_uids.txt.
-            HookLog.i("VpnHide: wrote hook status file (version=$version, boot_id=$bootId)")
+            HookLog.i(
+                "VpnHide: wrote hook status file (version=$version, boot_id=$bootId, " +
+                    "sdk=$sdk, broken=${brokenFields.size})",
+            )
         } catch (t: Throwable) {
             HookLog.e("VpnHide: failed to write hook status: ${t.message}")
         }
@@ -441,5 +551,103 @@ class HookEntry : IXposedHookLoadPackage {
         private const val TYPE_VPN = 17
         private const val TYPE_WIFI = 1
         const val HOOK_STATUS_FILE = "/data/system/vpnhide_hook_active"
+
+        private val FIELD_PROBES =
+            listOf(
+                FieldProbe(
+                    "LinkProperties.mIfaceName",
+                    LinkProperties::class.java,
+                    "mIfaceName",
+                ) { it == String::class.java },
+                FieldProbe(
+                    "LinkProperties.mRoutes",
+                    LinkProperties::class.java,
+                    "mRoutes",
+                ) { MutableList::class.java.isAssignableFrom(it) },
+                FieldProbe(
+                    "LinkProperties.mStackedLinks",
+                    LinkProperties::class.java,
+                    "mStackedLinks",
+                ) { MutableMap::class.java.isAssignableFrom(it) },
+                FieldProbe(
+                    "NetworkCapabilities.mTransportTypes",
+                    NetworkCapabilities::class.java,
+                    "mTransportTypes",
+                ) { it == java.lang.Long.TYPE },
+                FieldProbe(
+                    "NetworkCapabilities.mNetworkCapabilities",
+                    NetworkCapabilities::class.java,
+                    "mNetworkCapabilities",
+                ) { it == java.lang.Long.TYPE },
+                FieldProbe(
+                    "NetworkCapabilities.mTransportInfo",
+                    NetworkCapabilities::class.java,
+                    "mTransportInfo",
+                    minSdk = Build.VERSION_CODES.Q,
+                ) { fieldType ->
+                    // android.net.TransportInfo arrived in API 29; on
+                    // API 28 the probe is skipped via minSdk above.
+                    runCatching { Class.forName("android.net.TransportInfo") }
+                        .map { it.isAssignableFrom(fieldType) }
+                        .getOrDefault(false)
+                },
+                FieldProbe(
+                    "NetworkInfo.mNetworkType",
+                    NetworkInfo::class.java,
+                    "mNetworkType",
+                ) { it == Integer.TYPE },
+                FieldProbe(
+                    "NetworkInfo.mState",
+                    NetworkInfo::class.java,
+                    "mState",
+                ) { it == NetworkInfo.State::class.java },
+                FieldProbe(
+                    "NetworkInfo.mDetailedState",
+                    NetworkInfo::class.java,
+                    "mDetailedState",
+                ) { it == NetworkInfo.DetailedState::class.java },
+                FieldProbe(
+                    "NetworkInfo.mIsAvailable",
+                    NetworkInfo::class.java,
+                    "mIsAvailable",
+                ) { it == java.lang.Boolean.TYPE },
+            )
+
+        private val CTOR_PROBES =
+            listOf(
+                CtorProbe(
+                    "LinkProperties.<init>(LinkProperties)",
+                    LinkProperties::class.java,
+                    arrayOf(LinkProperties::class.java),
+                ),
+                CtorProbe(
+                    "NetworkInfo.<init>(int,int,String,String)",
+                    NetworkInfo::class.java,
+                    arrayOf(Integer.TYPE, Integer.TYPE, String::class.java, String::class.java),
+                ),
+            )
+
+        // Per-hook critical-probe sets. A hook is skipped if any key in
+        // its set is in the broken list. mRoutes / mStackedLinks /
+        // mTransportInfo are intentionally NOT critical — graceful
+        // degradation lives in the existing inner try/catch blocks.
+        private val LP_CRITICAL_KEYS =
+            setOf(
+                "LinkProperties.mIfaceName",
+                "LinkProperties.<init>(LinkProperties)",
+            )
+        private val NC_CRITICAL_KEYS =
+            setOf(
+                "NetworkCapabilities.mTransportTypes",
+                "NetworkCapabilities.mNetworkCapabilities",
+            )
+        private val NI_CRITICAL_KEYS =
+            setOf(
+                "NetworkInfo.mNetworkType",
+                "NetworkInfo.mState",
+                "NetworkInfo.mDetailedState",
+                "NetworkInfo.mIsAvailable",
+                "NetworkInfo.<init>(int,int,String,String)",
+            )
     }
 }

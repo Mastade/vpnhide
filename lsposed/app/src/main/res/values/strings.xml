@@ -133,6 +133,7 @@
     <string name="dashboard_issue_lsposed_not_enabled">VPN Hide is present in LSPosed/Vector, but the module is disabled. Enable VPN Hide in LSPosed/Vector and keep System Framework in its scope.</string>
     <string name="dashboard_issue_lsposed_no_system_scope">VPN Hide is enabled in LSPosed/Vector, but System Framework is missing from its scope. Add System Framework to the VPN Hide scope in LSPosed/Vector.</string>
     <string name="dashboard_issue_lsposed_extra_scope">VPN Hide should stay scoped only to System Framework in LSPosed/Vector. Remove these apps from the VPN Hide scope: %1$s. Use Protection → Tun in VPN Hide for filtering instead.</string>
+    <string name="dashboard_issue_lsposed_field_rename">AOSP field rename detected on Android SDK %2$s: %1$s. Java-layer protection is degraded for the affected hooks (they were skipped at install time to avoid logcat-spam from per-call NoSuchFieldError). Please file an issue at github.com/okhsunrog/vpnhide/issues with this list so the hooks can be updated for your Android version.</string>
     <string name="dashboard_issue_no_targets">No target apps configured. Go to Protection → Tun to select apps.</string>
     <string name="dashboard_issue_ports_no_observers">Ports hiding module is installed but no observers are configured. Go to Protection → Ports to pick apps.</string>
     <string name="dashboard_issue_version_mismatch">LSPosed module version mismatch: running %1$s, installed %2$s. Reboot the device to apply the update.</string>
