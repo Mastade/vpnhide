@@ -21,10 +21,12 @@ private const val PREFS_NAME = "vpnhide_prefs"
 private const val KEY_DEBUG_LOGGING = "debug_logging"
 
 internal const val SS_DEBUG_LOGGING_FILE = "/data/system/vpnhide_debug_logging"
+
 // Canonical persistent location — survives zygisk module reinstall.
 // `zygisk/module/service.sh` copies this into the module dir below at
 // every boot, so a reinstall doesn't lose the user's preference.
 internal const val ZYGISK_DEBUG_LOGGING_PERSIST = "/data/adb/vpnhide_zygisk/debug_logging"
+
 // Module-dir mirror — what `zygisk/src/lib.rs::apply_debug_logging_flag`
 // reads via the `get_module_dir()` fd at every fork. Wiped on module
 // reinstall (KSU/Magisk replaces the whole tree from the zip).
