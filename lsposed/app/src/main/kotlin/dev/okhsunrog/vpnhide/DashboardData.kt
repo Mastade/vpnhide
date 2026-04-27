@@ -913,6 +913,20 @@ internal fun loadDashboardState(
             }
         }
     }
+
+    // AOSP-drift detector: HookEntry's install-time smoke-check on the
+    // private NetworkCapabilities/NetworkInfo/LinkProperties fields it
+    // touches by reflection. Non-empty means the running AOSP renamed
+    // or retyped a field — the corresponding writeToParcel hook was
+    // skipped at install time, Java-layer protection is degraded for
+    // that class. Independent of lsposed Active/Inactive state: hooks
+    // can still be "active" in heartbeat sense but with partial coverage.
+    val brokenFields = hookProps["broken_fields"]?.takeIf { it.isNotBlank() }
+    if (brokenFields != null) {
+        val sdkLabel = hookProps["aosp_sdk"]?.takeIf { it.isNotBlank() } ?: "?"
+        err(res.getString(R.string.dashboard_issue_lsposed_field_rename, brokenFields, sdkLabel))
+    }
+
     val appVersion = BuildConfig.VERSION_NAME
     // Version mismatches are warnings — modules keep working, user just needs to
     // update the lagging side. Full coverage is not affected by a patch-level gap.
